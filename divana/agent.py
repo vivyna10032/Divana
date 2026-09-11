@@ -4,11 +4,10 @@ from pathlib import Path
 
 from agents import Agent
 
+from .config import Settings
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "divana.md"
-
-# 日常对话用均衡档模型。想省钱可以换成更轻的，难题再换更强的。
-MODEL = "gpt-5.6-terra"
 
 
 def load_instructions() -> str:
@@ -16,10 +15,10 @@ def load_instructions() -> str:
     return PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def build_agent() -> Agent:
-    """创建一个 Divana 实例。"""
+def build_agent(settings: Settings) -> Agent:
+    """按当前配置创建一个 Divana 实例。"""
     return Agent(
         name="Divana",
         instructions=load_instructions(),
-        model=MODEL,
+        model=settings.model,
     )

@@ -1,22 +1,22 @@
 """命令行交互入口。"""
 
 import asyncio
-import os
 
 from agents import Runner
 from dotenv import load_dotenv
 
 from .agent import build_agent
+from .config import Settings, setup_agents_sdk
 
 EXIT_WORDS = {"exit", "quit", "退出"}
 
 
-async def chat() -> None:
+async def chat(settings: Settings) -> None:
     """一轮一轮地聊下去，历史由我们自己保存。"""
-    divana = build_agent()
+    divana = build_agent(settings)
     history: list = []
 
-    print("Divana 已就绪。输入 exit 退出。\n")
+    print(f"Divana 已就绪（model: {settings.model}）。输入 exit 退出。\n")
     while True:
         try:
             user_input = input("你 > ").strip()
@@ -37,9 +37,6 @@ async def chat() -> None:
 
 def main() -> None:
     load_dotenv()
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise SystemExit(
-            "没有找到 OPENAI_API_KEY。"
-            "请把 .env.example 复制成 .env 并填入你的 key。"
-        )
-    asyncio.run(chat())
+    settings = Settings.from_env()
+    setup_agents_sdk(settings)
+    asyncio.run(chat(settings))
