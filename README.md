@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.3.1
+## 当前版本：v0.3.2
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -90,7 +90,8 @@ python -m scripts.smoke_test
 python -m unittest discover -s tests -v
 ```
 
-画像、笔记落盘、搜索解析的离线单测，不需要 key 也不需要网络。
+画像、笔记读写、搜索解析、配置解析、instructions 拼装的离线单测，
+不需要 key 也不需要网络。
 改这几个模块就顺手跑一下——它们占了项目一多半的逻辑。
 
 报 `No module named ...` 基本都是"忘了激活环境"，回到快速开始第 2 步。
@@ -103,7 +104,7 @@ Divana 有三层记忆，分工完全不同，这也是理解 agent 的一个好
 | --- | --- | --- | --- |
 | 会话存档 | `data/divana.db` | 每轮对话的原样记录 | 只带最近若干条（见 `divana/session.py` 的 `HISTORY_LIMIT`） |
 | 学习者画像 | `vault/profile.md` | 提炼过的结论：目标、水平、薄弱点… | 每轮都拼进 system prompt |
-| 学习笔记 | `vault/notes/*.md` | 一个个概念，带出处 | 不进上下文，要查的时候她自己翻 |
+| 学习笔记 | `vault/notes/*.md` | 一个个概念，带出处 | 不进上下文，靠 `search_notes` / `read_note` 自己翻 |
 
 **会话存档**：聊完自动落库，关掉窗口再启动就是接着上次聊。想开一段新记忆，换个会话名：
 
@@ -151,6 +152,22 @@ Obsidian 打开就能用。同名不会覆盖，会加 `-2`、`-3`。
 "服务商不认识""没配 key""已配置"三种情况。**"我明明填了却没生效"这类问题，先看这两行**——
 实际经验里，九成是改错了文件、忘了保存，或者等号后面没粘上真正的值。
 
+## 她会做的事（工具）
+
+模型自己能做的只有"说话"。要动手就得有工具——每个工具对应 `divana/tools.py` 里的一个函数：
+
+| 工具 | 做什么 | 动到哪 |
+| --- | --- | --- |
+| `update_learner_profile` | 更新画像的某一节 | `vault/profile.md` |
+| `search_web` | 联网查证 | 搜索服务商 |
+| `save_note` | 把一个概念存成笔记 | `vault/notes/` |
+| `search_notes` | 翻自己的笔记（传 `*` = 列出全部） | `vault/notes/` |
+| `read_note` | 读某篇笔记的全文 | `vault/notes/` |
+
+工具的名字、描述（就是函数的 docstring）和参数类型，合起来是**给模型的说明书**——
+模型看不到函数体，它只能靠这三样判断什么时候该调、参数怎么填。
+所以**改工具说明就等于改她的行为**，而且它通常比改人格 prompt 更直接、更容易验证。
+
 ## 目录结构
 
 ```
@@ -159,13 +176,14 @@ Obsidian 打开就能用。同名不会覆盖，会加 `-2`、`-3`。
 ├─ divana/
 │  ├─ config.py           配置：密钥、接口地址、模型、搜索
 │  ├─ agent.py            agent 定义（人格 + 画像拼成 instructions）
+│  ├─ prompt.py           instructions 的拼装（人格 + 日期 + 画像）
 │  ├─ context.py          工具依赖的容器（画像 / 笔记 / 搜索）
 │  ├─ profile.py          学习者画像的读写
-│  ├─ notes.py            笔记落盘（文件名清洗、防重名）
+│  ├─ notes.py            笔记读写（文件名清洗、防重名、翻找）
 │  ├─ search.py           联网搜索（三个服务商适配器）
 │  ├─ storage.py          原子写入
 │  ├─ session.py          会话持久化（SQLite）
-│  ├─ tools.py            给模型用的工具
+│  ├─ tools.py            给模型用的五个工具
 │  ├─ cli.py              命令行交互循环
 │  └─ __main__.py         python -m divana 的入口
 ├─ scripts/

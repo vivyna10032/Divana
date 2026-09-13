@@ -24,6 +24,9 @@ from .search import SearchError, render
 # 模型只能在给定选项里挑，从源头上堵住"编一个不存在的章节名"。
 ProfileSection = Literal["目标", "当前水平", "已掌握", "薄弱点", "学习习惯"]
 
+# read_note 一次最多返回多少字符。笔记是要进上下文的，不能想读多少读多少。
+NOTES_READ_CHARS = 4000
+
 
 @function_tool
 def update_learner_profile(
@@ -88,6 +91,8 @@ def save_note(
         title: 笔记标题，比如"注意力机制"。别带日期，日期由程序加。
         body: 笔记正文，markdown。要能脱离这次对话独立看懂：写结论、
             关键细节、以及用到的出处链接。
+            **从二级标题（##）开始写，不要再写一级标题**——程序已经把标题
+            加在文件最上面了，再写一遍会重复。
         tags: 标签，2-4 个英文小写词，比如 ["transformer", "attention"]。
             没有就给空列表。
     """
@@ -98,9 +103,58 @@ def save_note(
     return f"已存成 {note.path}。记得告诉用户文件在哪。"
 
 
+@function_tool
+def search_notes(ctx: RunContextWrapper[DivanaContext], query: str) -> str:
+    """翻自己的笔记库，找以前记过的概念。
+
+    什么时候用：用户问"我之前记过什么""你上次说的那个"，或者你想确认
+    以前给他的说法。先搜再答，不要凭印象说记过或者没记过。
+
+    Args:
+        query: 关键词，比如"注意力机制"。只想看看有哪些笔记就传 "*"。
+    """
+    hits = ctx.context.notes.search(query)
+    if not hits:
+        return (
+            f"没找到和「{query}」有关的笔记。换个关键词试试，"
+            "或者传 * 看看现在有哪些笔记。"
+        )
+
+    blocks: list[str] = []
+    for info, snippet in hits:
+        tag_text = "、".join(info.tags) if info.tags else "无"
+        blocks.append(
+            f"- {info.title}（{info.date or '无日期'}，tags: {tag_text}）\n"
+            f"  文件：{info.path.name}\n"
+            f"  摘要：{snippet}"
+        )
+    return f"找到 {len(hits)} 篇：\n\n" + "\n\n".join(blocks) + "\n\n要看全文用 read_note。"
+
+
+@function_tool
+def read_note(ctx: RunContextWrapper[DivanaContext], name: str) -> str:
+    """读一篇笔记的全文。
+
+    什么时候用：用户要你详细讲某个以前记过的概念，而摘要不够用。
+    一般先 search_notes 找到是哪一篇，再读它。
+
+    Args:
+        name: 文件名（如 2026-09-13-注意力机制.md）或笔记标题，两者都行。
+    """
+    try:
+        info = ctx.context.notes.read(name)
+    except NoteError as exc:
+        return f"没读到：{exc}"
+
+    body = info.body
+    if len(body) > NOTES_READ_CHARS:
+        body = body[:NOTES_READ_CHARS] + "\n\n…（这篇比较长，后面还有内容，被截断了）"
+    return f"《{info.title}》（{info.date or '无日期'}）\n\n{body}"
+
+
 def build_tools() -> list[Tool]:
     """把 Divana 现在会用的工具打包给 agent。
 
     单独抽成函数是为了以后加工具时只改这一处。
     """
-    return [update_learner_profile, search_web, save_note]
+    return [update_learner_profile, search_web, save_note, search_notes, read_note]

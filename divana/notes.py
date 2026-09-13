@@ -51,6 +51,17 @@ class Note:
     tags: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class NoteInfo:
+    """从文件里读回来的笔记：元信息 + 正文。"""
+
+    path: Path
+    title: str
+    date: str
+    tags: tuple[str, ...]
+    body: str
+
+
 def slugify(title: str) -> str:
     """把标题变成能当文件名用的片段。
 
@@ -89,6 +100,77 @@ def render_note(title: str, body: str, tags: tuple[str, ...], day: date) -> str:
         f"# {title}\n\n"
         f"{body}\n"
     )
+
+
+_FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?", re.DOTALL)
+
+
+def _parse_front_matter(text: str) -> tuple[dict[str, str], str]:
+    """拆出 front-matter 和正文。
+
+    解析得"能认就认、认不出就跳过"——笔记是用户也会手改的文件，
+    头部写坏了不该导致整篇笔记读不出来。
+    """
+    match = _FRONT_MATTER.match(text)
+    if not match:
+        return {}, text.strip()
+
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            fields[key.strip().lower()] = value.strip()
+    return fields, text[match.end() :].strip()
+
+
+def _parse_tag_list(raw: str) -> tuple[str, ...]:
+    """把 front-matter 里的 `tags: [a, b]` 拆成元组。"""
+    raw = raw.strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    return tuple(tag.strip().strip("'\"") for tag in raw.split(",") if tag.strip())
+
+
+def _first_heading(body: str) -> str:
+    """没有 front-matter 时，拿第一个标题当名字。"""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip()
+    return ""
+
+
+def _date_from_name(path: Path) -> str:
+    """文件名开头的 2026-09-13 就是日期，front-matter 丢了也能用。"""
+    match = re.match(r"(\d{4}-\d{2}-\d{2})", path.name)
+    return match.group(1) if match else ""
+
+
+def _match_score(info: NoteInfo, keyword: str) -> int | None:
+    """命中得分：标题 3 分、标签 2 分、正文 1 分。没命中返回 None。"""
+    if keyword in info.title.lower():
+        return 3
+    if any(keyword in tag.lower() for tag in info.tags):
+        return 2
+    if keyword in info.body.lower():
+        return 1
+    return None
+
+
+def _snippet(info: NoteInfo, keyword: str, chars: int = 160) -> str:
+    """给个能看的摘要：有关键词就给包含它的那一行，否则给正文第一行。"""
+    lines = [
+        line.strip()
+        for line in info.body.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    if not lines:
+        return "（这篇笔记还没有正文）"
+    if keyword:
+        for line in lines:
+            if keyword in line.lower():
+                return line[:chars]
+    return lines[0][:chars]
 
 
 class NoteStore:
@@ -138,3 +220,85 @@ class NoteStore:
             if not path.exists():
                 return path
         raise NoteError(f"同名笔记太多了：{base}")
+
+    def list_all(self) -> list[NoteInfo]:
+        """列出所有笔记。文件名以日期开头，所以倒序就是新的在前。"""
+        if not self.notes_dir.is_dir():
+            return []
+        return [self._load(path) for path in sorted(self.notes_dir.glob("*.md"), reverse=True)]
+
+    def search(self, query: str, limit: int = 5) -> list[tuple[NoteInfo, str]]:
+        """找笔记，返回 (笔记, 摘要)。
+
+        query 传 "*" 或空字符串表示"列出最近的几篇"。
+        """
+        query = query.strip()
+        list_mode = query in {"", "*"}
+        keyword = query.lower()
+
+        hits: list[tuple[int, NoteInfo, str]] = []
+        for info in self.list_all():
+            if list_mode:
+                hits.append((0, info, _snippet(info, "")))
+                continue
+            score = _match_score(info, keyword)
+            if score is not None:
+                hits.append((score, info, _snippet(info, keyword)))
+
+        # 稳定排序：同分的保持 list_all 给的顺序（新的在前）
+        hits.sort(key=lambda item: item[0], reverse=True)
+        return [(info, snippet) for _, info, snippet in hits[:limit]]
+
+    def read(self, name: str) -> NoteInfo:
+        """按文件名或标题读一篇笔记。
+
+        这里有一条要紧的规矩：`name` 只用来"在已经枚举出来的文件里做匹配"，
+        从来不参与路径拼接。所以传 "../../.env" 这种输入，天然不可能读到
+        笔记目录外面去——它只是匹配不到任何一篇而已。
+        """
+        wanted = name.strip()
+        if not wanted:
+            raise NoteError("要读哪一篇？给我文件名或标题")
+
+        notes = self.list_all()
+        if not notes:
+            raise NoteError("笔记目录里还没有任何笔记")
+
+        lowered = wanted.lower()
+
+        for info in notes:
+            if info.path.name.lower() == lowered or info.path.stem.lower() == lowered:
+                return info
+
+        same_title = [info for info in notes if info.title.lower() == lowered]
+        if len(same_title) == 1:
+            return same_title[0]
+
+        partial = [
+            info
+            for info in notes
+            if lowered in info.title.lower() or lowered in info.path.name.lower()
+        ]
+        if len(partial) == 1:
+            return partial[0]
+        if not partial:
+            raise NoteError(f"没找到「{name}」。先用 search_notes 看看有哪些笔记。")
+
+        names = "、".join(info.path.name for info in partial[:5])
+        raise NoteError(f"「{name}」匹配到多篇：{names}。用完整文件名再试一次。")
+
+    def _load(self, path: Path) -> NoteInfo:
+        """读一个文件并尽力还原它的元信息，任何字段缺失都有兜底。"""
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = ""
+
+        fields, body = _parse_front_matter(text)
+        return NoteInfo(
+            path=path,
+            title=fields.get("title", "").strip() or _first_heading(body) or path.stem,
+            date=fields.get("date", "").strip() or _date_from_name(path),
+            tags=_parse_tag_list(fields.get("tags", "")),
+            body=body,
+        )
