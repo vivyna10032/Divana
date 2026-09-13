@@ -10,6 +10,24 @@ from dataclasses import dataclass
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-pro"
 
+# 联网搜索是可选的：不配 key 也能跑，只是 search_web 会告诉她"查不了"
+DEFAULT_SEARCH_PROVIDER = "tavily"
+DEFAULT_SEARCH_MAX_RESULTS = 5
+
+
+def _read_positive_int(name: str, default: int) -> int:
+    """读一个正整数配置。写错了就明确报出来，别让它悄悄用默认值。"""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise SystemExit(f"{name} 得是整数，现在写的是：{raw}") from None
+    if value <= 0:
+        raise SystemExit(f"{name} 得是正整数，现在写的是：{raw}")
+    return value
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -18,6 +36,9 @@ class Settings:
     api_key: str
     base_url: str
     model: str
+    search_provider: str
+    search_api_key: str
+    search_max_results: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -30,6 +51,15 @@ class Settings:
             api_key=api_key,
             base_url=os.environ.get("DIVANA_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
             model=os.environ.get("DIVANA_MODEL", DEFAULT_MODEL),
+            search_provider=os.environ.get(
+                "DIVANA_SEARCH_PROVIDER", DEFAULT_SEARCH_PROVIDER
+            )
+            .strip()
+            .lower(),
+            search_api_key=os.environ.get("DIVANA_SEARCH_API_KEY", "").strip(),
+            search_max_results=_read_positive_int(
+                "DIVANA_SEARCH_MAX_RESULTS", DEFAULT_SEARCH_MAX_RESULTS
+            ),
         )
 
 
