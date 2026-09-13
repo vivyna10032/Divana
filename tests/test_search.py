@@ -120,5 +120,23 @@ class SearchClientTest(unittest.TestCase):
             SearchClient("tavily", "sk-test").search("   ")
 
 
+class StatusTest(unittest.TestCase):
+    """启动信息里那一行状态。它必须能区分"没配 key"和"服务商写错了"。"""
+
+    def test_reports_unknown_provider(self) -> None:
+        status = SearchClient("baidu", "sk-test").status()
+        self.assertIn("baidu", status)
+        self.assertIn("不认识", status)
+
+    def test_reports_missing_key(self) -> None:
+        status = SearchClient("tavily", "").status()
+        self.assertIn("没配 key", status)
+
+    def test_reports_configured(self) -> None:
+        status = SearchClient("tavily", "sk-test", 7).status()
+        self.assertIn("已配置", status)
+        self.assertIn("7", status)
+
+
 if __name__ == "__main__":
     unittest.main()

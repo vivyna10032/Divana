@@ -5,6 +5,10 @@
 
 import os
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 默认值，可以被 .env 里的同名变量覆盖
 DEFAULT_BASE_URL = "https://api.deepseek.com"
@@ -13,6 +17,37 @@ DEFAULT_MODEL = "deepseek-v4-pro"
 # 联网搜索是可选的：不配 key 也能跑，只是 search_web 会告诉她"查不了"
 DEFAULT_SEARCH_PROVIDER = "tavily"
 DEFAULT_SEARCH_MAX_RESULTS = 5
+
+
+def env_file() -> Path:
+    """实际会被读到的那个 .env 文件。
+
+    python-dotenv 是"从当前目录往上找 .env"，所以这里也用它自己的查找逻辑，
+    免得我们以为读了 A 文件、其实读了 B 文件。
+    """
+    try:
+        from dotenv import find_dotenv
+    except ImportError:
+        return PROJECT_ROOT / ".env"
+    try:
+        found = find_dotenv()
+    except Exception:
+        return PROJECT_ROOT / ".env"
+    return Path(found) if found else PROJECT_ROOT / ".env"
+
+
+def describe_env_file() -> str:
+    """给启动信息用：读的是哪个文件、什么时候改的。
+
+    加上"最后修改时间"是有意的——"我明明填了为什么没生效"这类问题，
+    九成是改错了文件或者没保存，把文件名和改动时间摆出来一眼就清楚了。
+    """
+    path = env_file()
+    try:
+        stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    except OSError:
+        return f"{path}（不存在，只用了系统环境变量）"
+    return f"{path}（最后修改 {stamp}）"
 
 
 def _read_positive_int(name: str, default: int) -> int:

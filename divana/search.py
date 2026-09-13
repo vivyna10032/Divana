@@ -149,6 +149,18 @@ class SearchClient:
     def configured(self) -> bool:
         return bool(self.api_key) and self.provider in PROVIDERS
 
+    def status(self) -> str:
+        """给启动信息用的一句话状态。
+
+        要分清三种情况：服务商不认识、没配 key、配置齐全。
+        只报一个"未配置"的话，用户根本不知道该改哪里。
+        """
+        if self.provider not in PROVIDERS:
+            return f"服务商「{self.provider}」不认识，可选：{'、'.join(PROVIDERS)}"
+        if not self.api_key:
+            return f"{self.provider}（没配 key，遇到不确定的事只会说不确定）"
+        return f"{self.provider}（已配置，每次取 {self.max_results} 条）"
+
     def search(self, query: str) -> list[SearchResult]:
         query = query.strip()
         if not query:

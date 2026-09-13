@@ -9,26 +9,48 @@ from agents import Runner, ToolCallItem
 from dotenv import load_dotenv
 
 from .agent import build_agent
-from .config import Settings, setup_agents_sdk
-from .context import build_context
-from .profile import ProfileStore
+from .config import Settings, describe_env_file, setup_agents_sdk
+from .context import DivanaContext, build_context
+from .search import SearchError, render
 from .session import DEFAULT_SESSION_ID, SESSION_DB, open_session
 
 EXIT_WORDS = {"exit", "quit", "退出"}
 
 
-def handle_command(raw: str, profile: ProfileStore) -> None:
-    """处理 /profile、/help 这类本地命令（不发给模型，不花钱）。"""
-    command = raw.split(maxsplit=1)[0].lower()
+def run_search_command(query: str, context: DivanaContext) -> None:
+    """直接调搜索，不经过模型。
+
+    用来把"搜索本身能不能用"和"模型会不会去调它"分开——排查问题时这两件事
+    必须能单独验证，否则你永远不知道是哪一环坏了。
+    """
+    if not query:
+        print("\n用法：/search 想搜的内容\n")
+        return
+    try:
+        results = context.search.search(query)
+    except SearchError as exc:
+        print(f"\n[搜索失败] {exc}\n")
+        return
+    print(f"\n{render(results)}\n")
+
+
+def handle_command(raw: str, context: DivanaContext) -> None:
+    """处理 /profile、/search、/help 这类本地命令（不发给模型，不花钱）。"""
+    parts = raw.split(maxsplit=1)
+    command = parts[0].lower()
+    argument = parts[1].strip() if len(parts) > 1 else ""
 
     if command == "/profile":
-        print(f"\n--- {profile.path} ---")
-        print(profile.read().strip())
+        print(f"\n--- {context.profile.path} ---")
+        print(context.profile.read().strip())
         print("---\n")
+    elif command == "/search":
+        run_search_command(argument, context)
     elif command == "/help":
         print("\n可用命令：")
-        print("  /profile   看 Divana 记了你什么（也可以直接编辑那个文件）")
-        print("  exit       退出，也可以用 quit 或 退出\n")
+        print("  /profile           看 Divana 记了你什么（也可以直接编辑那个文件）")
+        print("  /search 关键词      不走模型，直接试一次联网搜索")
+        print("  exit               退出，也可以用 quit 或 退出\n")
     else:
         print(f"\n没这个命令：{command}。输入 /help 看看有哪些。\n")
 
@@ -49,15 +71,11 @@ async def chat(settings: Settings, session_id: str) -> None:
     divana = build_agent(settings, context)
     session = open_session(session_id)
 
-    search_state = (
-        f"{context.search.provider}（已配置）"
-        if context.search.configured
-        else "未配置，查到不确定的事只会说不确定"
-    )
     print(f"Divana 已就绪（model: {settings.model}，会话: {session_id}）")
+    print(f"  配置来源: {describe_env_file()}")
     print(f"  对话存档: {SESSION_DB}")
     print(f"  学习者画像: {context.profile.path}")
-    print(f"  联网搜索: {search_state}")
+    print(f"  联网搜索: {context.search.status()}")
     print("输入 /help 看命令，exit 退出。\n")
 
     try:
@@ -73,7 +91,7 @@ async def chat(settings: Settings, session_id: str) -> None:
             if not user_input:
                 continue
             if user_input.startswith("/"):
-                handle_command(user_input, context.profile)
+                handle_command(user_input, context)
                 continue
 
             try:

@@ -8,6 +8,7 @@
 
 import os
 import sys
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
 from importlib.util import find_spec
 from pathlib import Path
@@ -150,9 +151,20 @@ def load_env() -> None:
 def check_config() -> None:
     print("\n[4/4] 配置")
     env_state = path_state(ENV_FILE)
-    show(".env", env_state)
     if env_state == "不存在":
+        show(".env", f"{ENV_FILE}（不存在）")
         problems.append("缺少 .env，把 .env.example 复制成 .env 再填 key")
+    elif env_state == "读不到":
+        show(".env", f"{ENV_FILE}（读不到）")
+    else:
+        # 把文件名和最后修改时间一起打出来：填了没生效，多半是改错文件或没保存
+        try:
+            stamp = datetime.fromtimestamp(ENV_FILE.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            show(".env", f"{ENV_FILE}（最后修改 {stamp}）")
+        except OSError:
+            show(".env", str(ENV_FILE))
 
     load_env()
     # 只报"有没有"，不打印 key 本身

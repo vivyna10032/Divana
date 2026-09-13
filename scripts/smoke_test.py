@@ -9,7 +9,7 @@ from agents import Runner
 from dotenv import load_dotenv
 
 from divana.agent import build_agent
-from divana.config import Settings, setup_agents_sdk
+from divana.config import Settings, describe_env_file, setup_agents_sdk
 from divana.context import build_context
 
 
@@ -21,8 +21,9 @@ async def main() -> None:
     context = build_context(settings)
     print(f"model    : {settings.model}")
     print(f"base_url : {settings.base_url}")
+    print(f"配置来源 : {describe_env_file()}")
     print(f"画像     : {context.profile.path}")
-    print(f"搜索     : {context.search.provider}，{'已配置' if context.search.configured else '未配置'}")
+    print(f"搜索     : {context.search.status()}")
 
     # 不传 session：自检不该往真实的对话存档里写东西
     agent = build_agent(settings, context)
