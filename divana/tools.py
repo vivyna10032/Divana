@@ -16,6 +16,12 @@ from typing import Literal
 from agents import RunContextWrapper, Tool, function_tool
 
 from .context import DivanaContext
+from .fetch import (
+    FetchError,
+    read_arxiv,
+    read_github_repo as fetch_github_repo,
+    read_url as fetch_url,
+)
 from .notes import NoteError
 from .profile import ProfileError
 from .search import SearchError, render
@@ -152,9 +158,67 @@ def read_note(ctx: RunContextWrapper[DivanaContext], name: str) -> str:
     return f"《{info.title}》（{info.date or '无日期'}）\n\n{body}"
 
 
+@function_tool
+def read_url(url: str) -> str:
+    """读一个网页的正文：技术文档、博客、文章、教程都行。
+
+    GitHub 仓库**不要**用这个，用 `read_github_repo`——仓库页面是 JS 渲染的，
+    这个工具抓下来基本是空的。
+
+    Args:
+        url: 完整的网页地址，要带 https://
+    """
+    try:
+        return fetch_url(url).render()
+    except FetchError as exc:
+        return f"没读到：{exc}"
+
+
+@function_tool
+def read_github_repo(repo: str) -> str:
+    """读一个 GitHub 仓库：描述、主语言、star、topics、License、README。
+
+    什么时候用：用户让你看/总结某个项目，或者你想弄明白一个库是干什么的、
+    怎么用。光看 star 数是判断不了项目好坏的，README 才是关键信息。
+
+    Args:
+        repo: 仓库地址或 owner/repo，比如 "openai/openai-agents-python"。
+    """
+    try:
+        return fetch_github_repo(repo).render()
+    except FetchError as exc:
+        return f"没读到：{exc}"
+
+
+@function_tool
+def read_arxiv_paper(identifier: str) -> str:
+    """读一篇 arXiv 论文：标题、作者、分类、提交日期、摘要；作者提供了 HTML
+    正文就一起带上。
+
+    什么时候用：用户给你论文编号或 arxiv.org 链接，让你讲这篇讲了什么。
+
+    Args:
+        identifier: 论文编号或链接，比如 "1706.03762" 或
+            "https://arxiv.org/abs/1706.03762"。
+    """
+    try:
+        return read_arxiv(identifier).render()
+    except FetchError as exc:
+        return f"没读到：{exc}"
+
+
 def build_tools() -> list[Tool]:
     """把 Divana 现在会用的工具打包给 agent。
 
     单独抽成函数是为了以后加工具时只改这一处。
     """
-    return [update_learner_profile, search_web, save_note, search_notes, read_note]
+    return [
+        update_learner_profile,
+        search_web,
+        save_note,
+        search_notes,
+        read_note,
+        read_url,
+        read_github_repo,
+        read_arxiv_paper,
+    ]
