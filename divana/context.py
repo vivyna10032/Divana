@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from .config import Settings
 from .notes import NoteStore
+from .plan import PlanStore
 from .profile import ProfileStore
 from .search import SearchClient
 
@@ -21,6 +22,7 @@ from .search import SearchClient
 class DivanaContext:
     profile: ProfileStore
     notes: NoteStore
+    plan: PlanStore
     search: SearchClient
     github_token: str = ""
 
@@ -30,6 +32,7 @@ def build_context(settings: Settings) -> DivanaContext:
     context = DivanaContext(
         profile=ProfileStore(),
         notes=NoteStore(),
+        plan=PlanStore(),
         search=SearchClient(
             provider=settings.search_provider,
             api_key=settings.search_api_key,
@@ -38,4 +41,5 @@ def build_context(settings: Settings) -> DivanaContext:
         github_token=settings.github_token,
     )
     context.profile.ensure_exists()
+    context.plan.ensure_exists()
     return context

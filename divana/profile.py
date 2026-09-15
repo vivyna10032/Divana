@@ -3,16 +3,15 @@
 画像是一份给人看的 markdown，放在 vault/profile.md。它每轮对话都会被拼进
 模型的 instructions，所以必须保持短小——这也是为什么写入要限制长度。
 
-这个模块只做文件读写，不碰模型，所以可以离线测试（见 tests/test_profile.py）。
+读写的通用机制在 markdown_store.py 里（画像和计划共用），这里只负责"画像
+是哪几节、长什么样"。不碰模型，所以可以离线测试（见 tests/test_profile.py）。
 """
 
 from __future__ import annotations
 
-import re
-from collections.abc import Iterator
 from pathlib import Path
 
-from .storage import atomic_write
+from .markdown_store import MarkdownStoreError, SectionedMarkdown
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PROFILE_PATH = PROJECT_ROOT / "vault" / "profile.md"
@@ -52,79 +51,19 @@ TEMPLATE = """# 学习者画像
 （还没记录。）
 """
 
-_HEADING = re.compile(r"^##\s+(?P<name>\S.*?)\s*$")
-
-
-class ProfileError(ValueError):
+class ProfileError(MarkdownStoreError):
     """画像写入时的可预期错误。工具会把它翻译成给模型看的话，而不是抛出去。"""
 
 
-def iter_sections(lines: list[str]) -> Iterator[tuple[str, int, int]]:
-    """把行列表按二级标题切开，产出 (标题, 起始行号, 结束行号)。
+class ProfileStore(SectionedMarkdown):
+    """读写 vault/profile.md。具体机制都在 SectionedMarkdown 里。"""
 
-    结束行号不含在正文里——也就是下一个二级标题所在的行。
-    """
-    headings = [
-        (index, match.group("name"))
-        for index, line in enumerate(lines)
-        if (match := _HEADING.match(line))
-    ]
-    for position, (start, name) in enumerate(headings):
-        end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
-        yield name, start, end
-
-
-class ProfileStore:
-    """读写 vault/profile.md。"""
+    error_cls = ProfileError
 
     def __init__(self, path: Path | None = None) -> None:
-        self.path = Path(path) if path is not None else DEFAULT_PROFILE_PATH
-
-    def ensure_exists(self) -> None:
-        """文件不在就按模板建一个，父目录也一起建。"""
-        if self.path.exists():
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(TEMPLATE, encoding="utf-8")
-
-    def read(self) -> str:
-        """读整份画像。文件还没建就返回模板，不落盘。"""
-        try:
-            return self.path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return TEMPLATE
-
-    def write_section(self, section: str, content: str) -> None:
-        """把某一节的正文整体换掉，其余部分原样保留。
-
-        这里用"按行切片再拼回去"，而不是"解析成数据结构再重新生成文件"：
-        你在文件里手写的备注、自己加的章节都不会被程序弄丢。
-        """
-        if section not in SECTIONS:
-            raise ProfileError(
-                f"「{section}」不是可写的章节，只能是：{'、'.join(SECTIONS)}"
-            )
-
-        content = content.strip()
-        if not content:
-            raise ProfileError("内容不能为空")
-        if len(content) > MAX_SECTION_CHARS:
-            raise ProfileError(
-                f"「{section}」太长了（{len(content)} 字符，上限 {MAX_SECTION_CHARS}）。"
-                "画像是每轮都要读的，请提炼成几句结论。"
-            )
-
-        self.ensure_exists()
-        lines = self.read().splitlines()
-        for name, start, end in iter_sections(lines):
-            if name == section:
-                # 标题下面统一留一个空行 + 正文 + 一个空行，保证和下一个标题隔开
-                lines[start + 1 : end] = ["", *content.splitlines(), ""]
-                self._write("\n".join(lines) + "\n")
-                return
-
-        raise ProfileError(f"画像里没有「{section}」这一节")
-
-    def _write(self, text: str) -> None:
-        """先写临时文件再原子替换：中途失败也不会把画像写坏。"""
-        atomic_write(self.path, text)
+        super().__init__(
+            path if path is not None else DEFAULT_PROFILE_PATH,
+            sections=SECTIONS,
+            template=TEMPLATE,
+            max_section_chars=MAX_SECTION_CHARS,
+        )

@@ -54,6 +54,10 @@ async def handle_command(
         print(f"\n--- {context.profile.path} ---")
         print(context.profile.read().strip())
         print("---\n")
+    elif command == "/plan":
+        print(f"\n--- {context.plan.path} ---")
+        print(context.plan.read().strip())
+        print("---\n")
     elif command == "/search":
         run_search_command(argument, context)
     elif command == "/summary":
@@ -61,6 +65,7 @@ async def handle_command(
     elif command == "/help":
         print("\n可用命令：")
         print("  /profile           看 Divana 记了你什么（也可以直接编辑那个文件）")
+        print("  /plan              看当前的学习计划（也可以直接编辑那个文件）")
         print("  /search 关键词      不走模型，直接试一次联网搜索")
         print("  /summary           把这次对话整理成一篇笔记，存进 vault/notes/")
         print("  exit               退出，也可以用 quit 或 退出\n")

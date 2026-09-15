@@ -23,12 +23,16 @@ from .fetch import (
     read_url as fetch_url,
 )
 from .notes import NoteError
+from .plan import PlanError
 from .profile import ProfileError
 from .search import SearchError, render
 
 # 参数类型写成 Literal，SDK 会把它转成 JSON Schema 里的枚举，
 # 模型只能在给定选项里挑，从源头上堵住"编一个不存在的章节名"。
 ProfileSection = Literal["目标", "当前水平", "已掌握", "薄弱点", "学习习惯"]
+
+# 计划的可写章节
+PlanSection = Literal["现在的位置", "下一步", "路线图", "复盘记录"]
 
 # read_note 一次最多返回多少字符。笔记是要进上下文的，不能想读多少读多少。
 NOTES_READ_CHARS = 4000
@@ -159,6 +163,42 @@ def read_note(ctx: RunContextWrapper[DivanaContext], name: str) -> str:
 
 
 @function_tool
+def read_plan(ctx: RunContextWrapper[DivanaContext]) -> str:
+    """看当前的学习计划：现在的位置、下一步、路线图、复盘记录。
+
+    什么时候用：用户问"我接下来学什么""我的计划呢""学到哪了"，或者你想把眼前
+    这个问题和他的长期路径挂起来讲。**改计划之前也要先读一遍。**
+    """
+    return ctx.context.plan.read().strip()
+
+
+@function_tool
+def update_plan(
+    ctx: RunContextWrapper[DivanaContext],
+    section: PlanSection,
+    content: str,
+) -> str:
+    """更新学习计划的某一节。
+
+    什么时候用：你和用户商量出了一个方向，或者他说某件事学会了／暂时不学了。
+    一次只改一节。
+
+    注意这是**整体替换**：改之前先 read_plan，把这一节里仍然成立的内容一起
+    写进去，否则会丢。
+
+    Args:
+        section: 要更新哪一节。
+        content: 这一节的完整新内容，markdown。用短句；没做的写 `- [ ]`，
+            做完的写 `- [x]`。
+    """
+    try:
+        ctx.context.plan.write_section(section, content)
+    except PlanError as exc:
+        return f"更新失败：{exc}"
+    return f"已更新计划的「{section}」。记得告诉用户你改了什么。"
+
+
+@function_tool
 def read_url(url: str) -> str:
     """读一个网页的正文：技术文档、博客、文章、教程都行。
 
@@ -217,6 +257,8 @@ def build_tools() -> list[Tool]:
     """
     return [
         update_learner_profile,
+        read_plan,
+        update_plan,
         search_web,
         save_note,
         search_notes,

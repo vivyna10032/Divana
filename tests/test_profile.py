@@ -16,8 +16,8 @@ from divana.profile import (
     TEMPLATE,
     ProfileError,
     ProfileStore,
-    iter_sections,
 )
+from divana.markdown_store import iter_sections
 
 
 class ProfileStoreTest(unittest.TestCase):
