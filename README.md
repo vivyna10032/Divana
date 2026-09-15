@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.4.1
+## 当前版本：v0.4.2
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -62,6 +62,22 @@ python -m divana
 Tavily 在 [tavily.com](https://tavily.com) 注册就有免费额度，把 key 填进 `.env` 即可。
 换服务商只改 `DIVANA_SEARCH_PROVIDER`——三个适配器都在 `divana/search.py` 里，
 想接新的照抄一段就行。
+
+## GitHub 配额（走代理的话建议配）
+
+GitHub 未登录调 API 是 **60 次/小时**，而且**按你的出口 IP 算**。走代理的话，
+这 60 次是同一个节点上所有人共享的——经常整天都是 403，看起来像"仓库不存在"。
+
+| 变量 | 作用 | 默认值 |
+| --- | --- | --- |
+| `DIVANA_GITHUB_TOKEN` | 配额提到 **5000 次/小时**，且按 token 算、不看 IP | 空（匿名） |
+
+这个 token **不需要任何权限**：公开仓库匿名就能读，它纯粹用来提高配额。生成路径：
+GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens，
+勾一个 "Public Repositories (read-only)" 就够。
+
+代码层面还省了一半配额：README 走 `raw.githubusercontent.com`（**那个域名不计入
+API 配额**），只有文件名不标准时才退回 API 端点。所以现在读一个仓库只用 1 次 API。
 
 ## 自检
 
@@ -199,7 +215,8 @@ https://example.com/some-post 这篇博客的核心观点是什么
 - **一份材料最多 12000 字**，超了会截断并标注，所以论文通常只覆盖到摘要和开头
 - **arXiv 的旧论文可能没有 HTML 版**，那就只用摘要讲
 - **只允许 http/https**：`file:///...` 会被挡掉——防的是她被网页里的话带着去读你本地的文件
-- **GitHub API 未登录时每小时 60 次**，超了会提示"被限流"，等一会儿就好
+- **GitHub 匿名配额是 60 次/小时，且按出口 IP 算**：走代理容易被同一个节点的别人用光。
+  撞上时她会告诉你大概多久恢复、以及怎么彻底解决（见上面那节）
 
 ## 回顾一次对话（v0.4 后半）
 

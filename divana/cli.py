@@ -118,6 +118,14 @@ async def chat(settings: Settings, session_id: str) -> None:
     print(f"  对话存档: {SESSION_DB}")
     print(f"  学习者画像: {context.profile.path}")
     print(f"  联网搜索: {context.search.status()}")
+    print(
+        "  GitHub: "
+        + (
+            "已配 token（5000 次/小时）"
+            if context.github_token
+            else "匿名（60 次/小时，按出口 IP 算，走代理容易被别人用光）"
+        )
+    )
     print("输入 /help 看命令，exit 退出。\n")
 
     try:

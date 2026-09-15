@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -83,21 +84,50 @@ def check_url(url: str) -> str:
     return url
 
 
-def http_get(url: str, *, accept: str | None = None) -> bytes:
+def describe_http_error(url: str, code: int, headers: object) -> str:
+    """把 HTTP 错误翻译成能指导下一步动作的话。
+
+    这里最值得说清的是 GitHub 的 403：匿名调 API 每小时只有 60 次，而且是
+    **按出口 IP 算的**。所以如果你走代理，那个 IP 是共享的，很容易被别人用光——
+    光看一句"被限流了"根本不知道该等还是该换办法。
+    """
+    get = getattr(headers, "get", None)
+    remaining = get("x-ratelimit-remaining") if callable(get) else None
+    reset = get("x-ratelimit-reset") if callable(get) else None
+
+    if code in (403, 429) and remaining == "0" and reset:
+        try:
+            minutes = max(1, (int(reset) - int(time.time())) // 60)
+        except (TypeError, ValueError):
+            minutes = None
+        wait = f"大约 {minutes} 分钟后恢复" if minutes else "等一会儿再试"
+        return (
+            f"GitHub 的匿名配额用完了（每小时 60 次，{wait}）：{url}。"
+            "这个配额按你的出口 IP 算——走代理的话那个 IP 是共享的，容易被别人用光。"
+            "在 .env 里填 DIVANA_GITHUB_TOKEN 可以把上限提到 5000 次/小时，"
+            "而且按 token 算，不受共享 IP 影响。"
+        )
+    if code in (403, 429):
+        return (
+            f"被拒绝（{code}）：{url}。如果这是私有仓库，需要配 DIVANA_GITHUB_TOKEN。"
+        )
+    if code == 404:
+        return f"地址不存在（404）：{url}。私有仓库在匿名状态下也会返回 404。"
+    return f"请求失败（{code}）：{url}"
+
+
+def http_get(url: str, *, accept: str | None = None, token: str = "") -> bytes:
     headers = {"User-Agent": USER_AGENT}
     if accept:
         headers["Accept"] = accept
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             return response.read()
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            raise FetchError(f"地址不存在（404）：{url}") from exc
-        if exc.code in (403, 429):
-            # GitHub 未登录时是 60 次/小时，很容易撞上
-            raise FetchError(f"被限流或拒绝（{exc.code}）：{url}。等一会儿再试。") from exc
-        raise FetchError(f"请求失败（{exc.code}）：{url}") from exc
+        raise FetchError(describe_http_error(url, exc.code, exc.headers)) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise FetchError(f"连不上：{url}（{exc}）") from exc
 
@@ -220,29 +250,53 @@ def parse_github_payload(meta: dict, readme: str = "") -> Document:
     return build_document(source=f"GitHub: {slug}", title=slug, body="\n".join(lines))
 
 
-def read_github_repo(repo: str) -> Document:
-    """读一个 GitHub 仓库：元信息 + README。
+# README 的常见文件名。用 raw 域名去试，试中就不用花 API 配额。
+_README_NAMES = ("README.md", "readme.md", "README.rst", "README.txt", "README")
+_RAW_GITHUB = "https://raw.githubusercontent.com"
 
-    走 API 而不是抓网页，因为仓库页面是 JS 渲染的，直接抓 HTML 只能拿到一堆
-    脚本。README 用 raw 格式拿，省得自己解 base64。
-    """
-    slug = normalize_repo(repo)
-    try:
-        meta = json.loads(http_get(f"{GITHUB_API}/repos/{slug}"))
-    except json.JSONDecodeError as exc:
-        raise FetchError(f"GitHub 的返回看不懂：{exc}") from exc
 
-    readme = ""
+def _readme_via_raw(slug: str, branch: str, token: str) -> str:
+    """从 raw.githubusercontent.com 拿 README——**这个域名不计入 API 配额**。"""
+    for name in _README_NAMES:
+        try:
+            raw = http_get(f"{_RAW_GITHUB}/{slug}/{branch}/{name}", token=token)
+        except FetchError:
+            continue
+        return raw.decode("utf-8", errors="replace")
+    return ""
+
+
+def _readme_via_api(slug: str, token: str) -> str:
+    """兜底：文件名不标准时（比如 README.zh-CN.md），只有 API 端点能找到。"""
     try:
         raw = http_get(
             f"{GITHUB_API}/repos/{slug}/readme",
             accept="application/vnd.github.raw",
+            token=token,
         )
-        readme = raw.decode("utf-8", errors="replace")
     except FetchError:
-        # 没有 README 的仓库很常见，不该因此整件事失败
-        readme = ""
+        return ""
+    return raw.decode("utf-8", errors="replace")
 
+
+def read_github_repo(repo: str, *, token: str = "") -> Document:
+    """读一个 GitHub 仓库：元信息 + README。
+
+    走 API 而不是抓网页，因为仓库页面是 JS 渲染的，直接抓 HTML 只能拿到一堆脚本。
+
+    README **优先走 raw 域名**：那里不计入 API 配额，能把每次读仓库的 API 调用
+    从 2 次压到 1 次。匿名配额只有 60 次/小时且按出口 IP 算，这一半省下来很值。
+    """
+    slug = normalize_repo(repo)
+    try:
+        meta = json.loads(http_get(f"{GITHUB_API}/repos/{slug}", token=token))
+    except json.JSONDecodeError as exc:
+        raise FetchError(f"GitHub 的返回看不懂：{exc}") from exc
+    if not isinstance(meta, dict):
+        raise FetchError(f"GitHub 的返回不是仓库信息：{slug}")
+
+    branch = str(meta.get("default_branch") or "main")
+    readme = _readme_via_raw(slug, branch, token) or _readme_via_api(slug, token)
     return parse_github_payload(meta, readme)
 
 

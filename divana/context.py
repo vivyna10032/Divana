@@ -22,6 +22,7 @@ class DivanaContext:
     profile: ProfileStore
     notes: NoteStore
     search: SearchClient
+    github_token: str = ""
 
 
 def build_context(settings: Settings) -> DivanaContext:
@@ -34,6 +35,7 @@ def build_context(settings: Settings) -> DivanaContext:
             api_key=settings.search_api_key,
             max_results=settings.search_max_results,
         ),
+        github_token=settings.github_token,
     )
     context.profile.ensure_exists()
     return context

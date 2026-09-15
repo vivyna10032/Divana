@@ -175,17 +175,20 @@ def read_url(url: str) -> str:
 
 
 @function_tool
-def read_github_repo(repo: str) -> str:
+def read_github_repo(ctx: RunContextWrapper[DivanaContext], repo: str) -> str:
     """读一个 GitHub 仓库：描述、主语言、star、topics、License、README。
 
     什么时候用：用户让你看/总结某个项目，或者你想弄明白一个库是干什么的、
     怎么用。光看 star 数是判断不了项目好坏的，README 才是关键信息。
 
+    如果返回里提到"配额用完"或"被拒绝"，直接如实告诉用户，并提醒他可以在
+    .env 里配 DIVANA_GITHUB_TOKEN——那是共享代理 IP 撞上限流，不是仓库不存在。
+
     Args:
         repo: 仓库地址或 owner/repo，比如 "openai/openai-agents-python"。
     """
     try:
-        return fetch_github_repo(repo).render()
+        return fetch_github_repo(repo, token=ctx.context.github_token).render()
     except FetchError as exc:
         return f"没读到：{exc}"
 

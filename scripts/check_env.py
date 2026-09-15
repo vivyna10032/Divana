@@ -184,6 +184,15 @@ def check_config() -> None:
         + ("" if has_search_key else "（可选，不配只是不能联网查证）"),
     )
 
+    # GitHub 匿名调 API 只有 60 次/小时，而且按出口 IP 算——走代理很容易被共享 IP 拖累
+    has_github_token = bool(os.environ.get("DIVANA_GITHUB_TOKEN", "").strip())
+    show(
+        "GitHub",
+        "已配 token（5000 次/小时）"
+        if has_github_token
+        else "匿名（60 次/小时，按出口 IP 算）",
+    )
+
 
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):

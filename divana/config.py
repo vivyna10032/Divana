@@ -74,6 +74,7 @@ class Settings:
     search_provider: str
     search_api_key: str
     search_max_results: int
+    github_token: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -95,6 +96,7 @@ class Settings:
             search_max_results=_read_positive_int(
                 "DIVANA_SEARCH_MAX_RESULTS", DEFAULT_SEARCH_MAX_RESULTS
             ),
+            github_token=os.environ.get("DIVANA_GITHUB_TOKEN", "").strip(),
         )
 
 

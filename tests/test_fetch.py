@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import time
 import unittest
+from unittest import mock
 
 from divana.fetch import (
     MAX_TEXT_CHARS,
@@ -13,7 +15,9 @@ from divana.fetch import (
     FetchError,
     build_document,
     check_url,
+    describe_http_error,
     html_to_text,
+    http_get,
     normalize_arxiv_id,
     normalize_repo,
     parse_arxiv_feed,
@@ -230,6 +234,69 @@ class BuildDocumentTest(unittest.TestCase):
     def test_render_marks_truncation(self) -> None:
         document = build_document("src", "标题", "字" * (MAX_TEXT_CHARS + 1))
         self.assertIn("被截断", document.render())
+
+
+class DescribeHttpErrorTest(unittest.TestCase):
+    """403 的提示必须能指导下一步动作——这是真踩过的坑（共享 IP 配额被用光）。"""
+
+    url = "https://api.github.com/repos/someone/somerepo"
+
+    def test_rate_limited_says_how_long_and_how_to_fix(self) -> None:
+        reset = int(time.time()) + 600  # 10 分钟后恢复
+        message = describe_http_error(
+            self.url,
+            403,
+            {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)},
+        )
+        self.assertIn("配额", message)
+        self.assertIn("DIVANA_GITHUB_TOKEN", message)
+        self.assertIn("10 分钟", message)
+
+    def test_429_is_treated_like_rate_limiting(self) -> None:
+        message = describe_http_error(self.url, 429, {"x-ratelimit-remaining": "0"})
+        self.assertIn("429", message)
+
+    def test_plain_403_points_at_private_repo(self) -> None:
+        self.assertIn("私有仓库", describe_http_error(self.url, 403, {}))
+
+    def test_404_explains_private_repos_look_the_same(self) -> None:
+        message = describe_http_error(self.url, 404, {})
+        self.assertIn("404", message)
+        self.assertIn("私有仓库", message)
+
+    def test_survives_missing_headers(self) -> None:
+        self.assertIn("403", describe_http_error(self.url, 403, None))
+
+    def test_survives_unparsable_reset(self) -> None:
+        message = describe_http_error(
+            self.url, 403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "abc"}
+        )
+        self.assertIn("等一会儿", message)
+
+
+class HttpGetTest(unittest.TestCase):
+    """不发真请求，只看构造出来的 request 对不对。"""
+
+    def call(self, **kwargs: object) -> object:
+        with mock.patch("divana.fetch.urllib.request.urlopen") as fake:
+            fake.return_value.__enter__.return_value.read.return_value = b"ok"
+            http_get("https://api.github.com/repos/a/b", **kwargs)
+            return fake.call_args[0][0]
+
+    def test_sends_bearer_token_when_given(self) -> None:
+        request = self.call(token="ghp_test")
+        self.assertEqual(request.headers.get("Authorization"), "Bearer ghp_test")
+
+    def test_no_authorization_header_without_token(self) -> None:
+        request = self.call()
+        self.assertIsNone(request.headers.get("Authorization"))
+
+    def test_always_sends_user_agent(self) -> None:
+        self.assertIn("Divana", self.call().headers.get("User-agent", ""))
+
+    def test_accept_header_is_passed_through(self) -> None:
+        request = self.call(accept="application/vnd.github.raw")
+        self.assertEqual(request.headers.get("Accept"), "application/vnd.github.raw")
 
 
 if __name__ == "__main__":
