@@ -1,2 +1,8 @@
 openai-agents
 python-dotenv
+
+# 网页版用到。其实 openai-agents 会通过 mcp 把它们间接带进来，但——
+# 你**直接 import 的包就该写在自己的清单里**，否则哪天上游不再需要它，
+# 你的网页版会在某次重装环境后突然起不来，而原因很难查。
+starlette
+uvicorn

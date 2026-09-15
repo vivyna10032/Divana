@@ -13,6 +13,7 @@ from __future__ import annotations
 from agents import Agent, Runner, Session
 
 from .config import Settings
+from .contracts import SummarizeError
 from .prompt import load_summarizer
 from .transcript import MIN_TRANSCRIPT_CHARS, render_transcript
 
@@ -21,10 +22,6 @@ from .transcript import MIN_TRANSCRIPT_CHARS, render_transcript
 # 这个参数不能省：SQLiteSession 默认只给 session_settings.limit 条（我们设的 40），
 # 那只够"接着聊"，不够"回顾全程"。显式传 limit 才会覆盖它。
 SUMMARY_ITEMS_LIMIT = 400
-
-
-class SummarizeError(RuntimeError):
-    """可预期的失败：没什么可总结的、或者模型没返回内容。"""
 
 
 def build_summarizer(settings: Settings) -> Agent:

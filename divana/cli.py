@@ -12,8 +12,9 @@ import asyncio
 from dotenv import load_dotenv
 
 from .config import Settings, describe_env_file, setup_agents_sdk
+from .contracts import Reply, TextDelta, ToolCall, ToolCalled
 from .search import SearchError, render
-from .service import DivanaService, Reply, TextDelta, ToolCall, ToolCalled
+from .service import DivanaService
 from .session import DEFAULT_SESSION_ID, SESSION_DB
 from .summarize import SummarizeError
 

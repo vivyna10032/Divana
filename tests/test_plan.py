@@ -106,6 +106,32 @@ class PlanStoreTest(unittest.TestCase):
         with self.assertRaises(PlanError):
             self.store().write_section("下一步", "   \n  ")
 
+    def test_read_section_returns_body_without_heading(self) -> None:
+        store = self.store()
+        store.ensure_exists()
+        text = store.read_section("现在的位置")
+
+        self.assertIn("还没定", text)
+        self.assertNotIn("## 现在的位置", text)
+
+    def test_read_section_sees_the_latest_write(self) -> None:
+        store = self.store()
+        store.write_section("下一步", "- [ ] 读完 run.py")
+        self.assertEqual(store.read_section("下一步"), "- [ ] 读完 run.py")
+
+    def test_read_section_rejects_unknown_name(self) -> None:
+        with self.assertRaises(PlanError):
+            self.store().read_section("不存在的节")
+
+    def test_read_section_returns_empty_when_hand_deleted(self) -> None:
+        """文件被手改过也不能炸——读操作要能容错。"""
+        store = self.store()
+        store.ensure_exists()
+        self.path.write_text(
+            store.read().replace("## 复盘记录", "## 被改名了"), encoding="utf-8"
+        )
+        self.assertEqual(store.read_section("复盘记录"), "")
+
     def test_too_long_content_is_rejected(self) -> None:
         with self.assertRaises(PlanError):
             self.store().write_section("路线图", "长" * (MAX_SECTION_CHARS + 1))

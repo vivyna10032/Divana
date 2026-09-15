@@ -71,6 +71,23 @@ class SectionedMarkdown:
         except FileNotFoundError:
             return self.template
 
+    def read_section(self, section: str) -> str:
+        """读某一节的正文（不含标题行和首尾空行）。
+
+        页面侧边栏要单独显示"现在的位置""目标"这种小节，就得按节取。
+        章节名写错会报错（那是我自己代码的问题，该早发现）；但**文件里被手删掉
+        了那一节就返回空串**——读操作不该因为文件被改过就炸。
+        """
+        if section not in self.sections:
+            raise self.error_cls(
+                f"「{section}」不是这个文件的章节，只能是：{'、'.join(self.sections)}"
+            )
+        lines = self.read().splitlines()
+        for name, start, end in iter_sections(lines):
+            if name == section:
+                return "\n".join(lines[start + 1 : end]).strip()
+        return ""
+
     def write_section(self, section: str, content: str) -> None:
         """把某一节的正文整体换掉，其余部分原样保留。
 

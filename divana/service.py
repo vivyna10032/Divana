@@ -11,63 +11,25 @@ cli.py 负责读键盘和打印；这一层只管干活、返回结构化结果�
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
-
 from agents import Runner, Session, ToolCallItem
 from openai.types.responses import ResponseTextDeltaEvent
 
 from .agent import build_agent
 from .config import Settings
 from .context import DivanaContext, build_context
-from .notes import Note, NoteInfo
+from .contracts import (
+    EventCallback,
+    Reply,
+    Summary,
+    TextDelta,
+    ToolCall,
+    ToolCalled,
+)
+from .notes import NoteInfo
 from .search import SearchResult
 from .session import DEFAULT_SESSION_ID, open_session
 from .summarize import summarize_session
 from .transcript import split_title
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """模型这一轮调用的一次工具。只带数据，怎么显示由调用方决定。"""
-
-    name: str
-    arguments: str
-
-
-@dataclass(frozen=True)
-class TextDelta:
-    """模型正在吐字。"""
-
-    text: str
-
-
-@dataclass(frozen=True)
-class ToolCalled:
-    """模型刚决定调用某个工具（还没执行完）。"""
-
-    call: ToolCall
-
-
-# 流式过程中会往外抛的事件。前端拿到它就能直接转成 SSE 消息。
-AskEvent = TextDelta | ToolCalled
-EventCallback = Callable[[AskEvent], None]
-
-
-@dataclass
-class Reply:
-    """一次回答的结果。"""
-
-    text: str
-    tool_calls: list[ToolCall] = field(default_factory=list)
-
-
-@dataclass
-class Summary:
-    """整理出来的总结：既有正文（前端要显示），也有落盘位置。"""
-
-    markdown: str
-    note: Note
 
 
 def tool_call_from(item: ToolCallItem) -> ToolCall:
