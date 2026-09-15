@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from agents import Runner, ToolCallItem
+from agents import Runner, Session, ToolCallItem
 from dotenv import load_dotenv
 
 from .agent import build_agent
@@ -13,6 +13,8 @@ from .config import Settings, describe_env_file, setup_agents_sdk
 from .context import DivanaContext, build_context
 from .search import SearchError, render
 from .session import DEFAULT_SESSION_ID, SESSION_DB, open_session
+from .summarize import SummarizeError, summarize_session
+from .transcript import split_title
 
 EXIT_WORDS = {"exit", "quit", "退出"}
 
@@ -34,8 +36,16 @@ def run_search_command(query: str, context: DivanaContext) -> None:
     print(f"\n{render(results)}\n")
 
 
-def handle_command(raw: str, context: DivanaContext) -> None:
-    """处理 /profile、/search、/help 这类本地命令（不发给模型，不花钱）。"""
+async def handle_command(
+    raw: str,
+    context: DivanaContext,
+    settings: Settings,
+    session: Session,
+) -> None:
+    """处理 /profile、/search、/summary、/help 这类本地命令。
+
+    只有 /summary 要花钱（一次总结者的调用），其余都是纯本地操作。
+    """
     parts = raw.split(maxsplit=1)
     command = parts[0].lower()
     argument = parts[1].strip() if len(parts) > 1 else ""
@@ -46,10 +56,13 @@ def handle_command(raw: str, context: DivanaContext) -> None:
         print("---\n")
     elif command == "/search":
         run_search_command(argument, context)
+    elif command == "/summary":
+        await run_summary(settings, context, session)
     elif command == "/help":
         print("\n可用命令：")
         print("  /profile           看 Divana 记了你什么（也可以直接编辑那个文件）")
         print("  /search 关键词      不走模型，直接试一次联网搜索")
+        print("  /summary           把这次对话整理成一篇笔记，存进 vault/notes/")
         print("  exit               退出，也可以用 quit 或 退出\n")
     else:
         print(f"\n没这个命令：{command}。输入 /help 看看有哪些。\n")
@@ -63,6 +76,35 @@ def describe_tool_call(item: ToolCallItem) -> str:
     if len(arguments) > 120:
         arguments = arguments[:120] + "…"
     return f"{name}({arguments})"
+
+
+async def run_summary(settings: Settings, context: DivanaContext, session: Session) -> None:
+    """整理这次对话并存成笔记。失败只提示，不抛出去——别让总结毁掉退出流程。"""
+    print("\n正在整理这次对话……（要花一次模型调用）")
+    try:
+        markdown = await summarize_session(settings, session)
+    except SummarizeError as exc:
+        print(f"跳过：{exc}\n")
+        return
+    except Exception as exc:
+        print(f"[出错] 整理失败：{type(exc).__name__}: {exc}\n")
+        return
+
+    title, body = split_title(markdown)
+    print(f"\n{markdown}\n")
+    note = context.notes.save(title, body, ["conversation", "summary"])
+    print(f"已存成 {note.path}\n")
+
+
+async def offer_summary(settings: Settings, context: DivanaContext, session: Session) -> None:
+    """退出前问一句。默认不总结——不打扰，也不偷偷花调用。"""
+    try:
+        answer = input("\n要不要把这次对话整理成一篇笔记？(y/N) ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if answer in {"y", "yes", "是", "好"}:
+        await run_summary(settings, context, session)
 
 
 async def chat(settings: Settings, session_id: str) -> None:
@@ -87,11 +129,12 @@ async def chat(settings: Settings, session_id: str) -> None:
                 break
 
             if user_input in EXIT_WORDS:
+                await offer_summary(settings, context, session)
                 break
             if not user_input:
                 continue
             if user_input.startswith("/"):
-                handle_command(user_input, context)
+                await handle_command(user_input, context, settings, session)
                 continue
 
             try:

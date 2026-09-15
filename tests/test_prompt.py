@@ -8,7 +8,12 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from divana.prompt import compose_instructions, format_today, load_persona
+from divana.prompt import (
+    compose_instructions,
+    format_today,
+    load_persona,
+    load_summarizer,
+)
 
 
 class FormatTodayTest(unittest.TestCase):
@@ -49,6 +54,13 @@ class ComposeInstructionsTest(unittest.TestCase):
 class PersonaTest(unittest.TestCase):
     def test_persona_file_is_loadable(self) -> None:
         self.assertIn("Divana", load_persona())
+
+    def test_summarizer_prompt_is_loadable(self) -> None:
+        text = load_summarizer()
+        self.assertIn("标题", text)
+        self.assertIn("只写记录里真实出现过的内容", text)
+        # 这条是防"模型自己加一级标题"的约定，掉了要有人发现
+        self.assertIn("不要再写一级标题", text)
 
 
 if __name__ == "__main__":
