@@ -12,7 +12,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import socket
+import subprocess
 import threading
 import time
 import unittest
@@ -35,6 +37,83 @@ except ImportError:  # pragma: no cover - 只在缺依赖时走
 
 if HAVE_WEB:
     from divana.webapp import create_app
+
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+NODE = shutil.which("node")
+
+
+def run_markdown(text: str) -> str:
+    """在 node 里跑一遍 renderMarkdown，把结果拿回来。
+
+    markdown.js 不碰 DOM，所以能这么测——这也是当初把它从 app.js 里拆出来的原因。
+    """
+    script = (
+        f"const m = require({json.dumps((WEB_DIR / 'markdown.js').as_posix())});"
+        "process.stdout.write(m.renderMarkdown(process.argv[1]));"
+    )
+    result = subprocess.run(
+        [NODE, "-e", script, text],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise AssertionError(result.stderr)
+    return result.stdout
+
+
+class WebAssetTest(unittest.TestCase):
+    """不需要起服务器，也不需要 node。"""
+
+    def test_index_loads_markdown_before_app(self) -> None:
+        # app.js 直接用 renderMarkdown，顺序反了就整页报错
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertLess(html.index("markdown.js"), html.index("app.js"))
+
+
+@unittest.skipUnless(NODE, "需要 node 才能检查 / 运行前端脚本")
+class FrontendScriptTest(unittest.TestCase):
+    """用 node 跑前端脚本。没有 node 就整体跳过。"""
+
+    def test_syntax_is_valid(self) -> None:
+        for name in ("markdown.js", "app.js"):
+            result = subprocess.run(
+                [NODE, "--check", str(WEB_DIR / name)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, f"{name} 语法错误：{result.stderr}")
+
+    def test_renders_a_table(self) -> None:
+        html = run_markdown("| 项目 | Star |\n|---|---|\n| smolagents | 29.3k |")
+        self.assertIn("<table>", html)
+        self.assertIn("<th>项目</th>", html)
+        self.assertIn("<td>29.3k</td>", html)
+        self.assertNotIn("|---|", html)  # 分隔行不该出现在结果里
+
+    def test_renders_a_code_block(self) -> None:
+        html = run_markdown("说明：\n\n```python\nprint(1)\n```\n")
+        self.assertIn("<pre", html)
+        self.assertIn('data-lang="python"', html)
+        self.assertIn("print(1)", html)
+
+    def test_escapes_html_from_the_model(self) -> None:
+        """模型输出里的标签必须被转义——这是唯一一条安全相关的断言。"""
+        html = run_markdown("<script>alert(1)</script>")
+        self.assertNotIn("<script>", html)
+        self.assertIn("&lt;script&gt;", html)
+
+    def test_renders_bold_and_links(self) -> None:
+        html = run_markdown("**粗体** 和 [链接](https://example.com)")
+        self.assertIn("<strong>粗体</strong>", html)
+        self.assertIn('href="https://example.com"', html)
+
+    def test_line_without_divider_is_not_a_table(self) -> None:
+        html = run_markdown("| 这个只是竖线 | 不是表格 |")
+        self.assertNotIn("<table>", html)
 
 
 class _FakeStore:

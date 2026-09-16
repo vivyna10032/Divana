@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.7.1
+## 当前版本：v0.7.2
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -214,9 +214,14 @@ python -m divana.webapp
   因为网页没有"退出时询问"那个环节。
 - **知识库**：左边是笔记列表，支持关键词搜索和标签筛选；右边读全文。
 
-页面文件拆成了三个：`web/index.html`（结构）、`web/style.css`（样式）、
-`web/app.js`（逻辑），由 Starlette 的静态文件挂载提供。**依然没有构建步骤**，
-改完刷新就生效。
+页面文件拆成了几个：`web/index.html`（结构）、`web/style.css`（样式）、
+`web/app.js`（逻辑）、`web/markdown.js`（渲染），由 Starlette 的静态文件挂载提供。
+**依然没有构建步骤**，改完刷新就生效。
+
+`markdown.js` 单独放是有原因的：它不碰 DOM，纯字符串进、纯 HTML 出。所以
+`tests/test_webapp.py` 可以用 node 直接把它 require 进来跑断言——包括"模型输出的
+HTML 必须被转义"这条安全断言。跟 Python 那边把纯逻辑和框架胶水分开是同一个道理。
+目前支持：标题、列表、引用、**表格**、代码块、加粗、行内代码、链接。
 
 **它只监听本机（127.0.0.1）**，别改成 `0.0.0.0`：这个服务能读你本地的文件、
 用你的 API key，暴露到局域网就等于把它们交出去。
@@ -329,7 +334,8 @@ https://example.com/some-post 这篇博客的核心观点是什么
 ├─ web/                   网页版（无构建步骤：改完刷新就生效）
 │  ├─ index.html          结构
 │  ├─ style.css           样式
-│  └─ app.js              逻辑（聊天流式、知识库、侧边栏）
+│  ├─ app.js              逻辑（聊天流式、知识库、侧边栏）
+│  └─ markdown.js         markdown 渲染（不碰 DOM，可用 node 测试）
 ├─ divana/
 │  ├─ config.py           配置：密钥、接口地址、模型、搜索
 │  ├─ agent.py            agent 定义（人格 + 画像拼成 instructions）

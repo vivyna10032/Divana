@@ -71,6 +71,23 @@ body {
   border-left: 3px solid var(--line); color: var(--muted);
 }
 .bubble a { color: var(--green); }
+
+/* 表格：模型很爱用，但很容易比气泡宽，所以外面套一层横向滚动 */
+.table-wrap { overflow-x: auto; margin: 10px 0; }
+.table-wrap table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.table-wrap th, .table-wrap td {
+  border: 1px solid var(--line); padding: 6px 10px;
+  text-align: left; vertical-align: top; white-space: nowrap;
+}
+.table-wrap th { background: #f4f6f4; font-weight: 600; }
+.table-wrap td:last-child, .table-wrap th:last-child { white-space: normal; }
+
+/* 代码块 */
+.bubble pre {
+  background: #f2f4f2; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; overflow-x: auto; margin: 10px 0;
+}
+.bubble pre code { background: none; padding: 0; font: 12.5px/1.6 Consolas, monospace; }
 .tool {
   font: 12px/1.6 Consolas, monospace; color: var(--muted);
   background: #f2f4f2; border: 1px dashed var(--line); border-radius: 8px;

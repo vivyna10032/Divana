@@ -9,49 +9,9 @@ async function api(path, options) {
   return data;
 }
 
-/* ---------------------------------------------------------------- markdown */
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-/* 行内格式。注意顺序：先 escapeHtml 再替换，所以模型输出里的 HTML 不会被执行。 */
-function inline(s) {
-  return s
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-             '<a href="$2" target="_blank" rel="noopener">$1</a>');
-}
-
-/* 够用的 markdown 渲染：标题、列表、引用、段落。不求完整，求看得清。 */
-function renderMarkdown(text) {
-  const out = [];
-  let list = null;
-  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-
-  for (const raw of escapeHtml(text).split("\n")) {
-    const line = raw.trim();
-    if (!line) { closeList(); continue; }
-    let m;
-    if ((m = line.match(/^#{2,4}\s+(.*)/))) { closeList(); out.push(`<h3>${inline(m[1])}</h3>`); continue; }
-    if ((m = line.match(/^#\s+(.*)/))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); continue; }
-    if ((m = line.match(/^[-*]\s+(.*)/))) {
-      if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; }
-      out.push(`<li>${inline(m[1])}</li>`); continue;
-    }
-    if ((m = line.match(/^\d+[.)]\s+(.*)/))) {
-      if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; }
-      out.push(`<li>${inline(m[1])}</li>`); continue;
-    }
-    if ((m = line.match(/^>\s?(.*)/))) { closeList(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); continue; }
-    closeList();
-    out.push(`<p>${inline(line)}</p>`);
-  }
-  closeList();
-  return out.join("");
-}
+/* markdown 渲染在 web/markdown.js 里——它不碰 DOM，所以能用 node 直接测。
+   那个文件在 index.html 里先于这个加载，所以 escapeHtml / renderMarkdown
+   在这里是全局可用的。 */
 
 /* ---------------------------------------------------------------- 视图切换 */
 
@@ -168,6 +128,14 @@ async function ask(text) {
           scrollDown();
         } else if (name === "tool") {
           addToolLine(tools, payload.name, payload.arguments);
+        } else if (name === "done") {
+          // 以最终文本为准。流式过程中如果因为重试重发了片段（比如搜索接口抽风
+          // 重试过一次），累积的 answer 会有重复段落——这里用官方结果覆盖掉。
+          if (payload.text) {
+            started = true;
+            answerBox.innerHTML = renderMarkdown(payload.text);
+            scrollDown();
+          }
         } else if (name === "error") {
           fail(payload.message || "出错了");
         }
