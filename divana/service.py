@@ -109,8 +109,10 @@ class DivanaService:
     def list_notes(self) -> list[NoteInfo]:
         return self.context.notes.list_all()
 
-    def search_notes(self, query: str) -> list[tuple[NoteInfo, str]]:
-        return self.context.notes.search(query)
+    def search_notes(
+        self, query: str, limit: int = 5, *, tag: str = ""
+    ) -> list[tuple[NoteInfo, str]]:
+        return self.context.notes.search(query, limit, tag=tag)
 
     def read_note(self, name: str) -> NoteInfo:
         return self.context.notes.read(name)

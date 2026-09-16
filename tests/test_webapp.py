@@ -17,11 +17,12 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from types import SimpleNamespace
 
 from divana.contracts import Reply, Summary, TextDelta, ToolCall, ToolCalled
-from divana.notes import Note
+from divana.notes import Note, NoteError, NoteInfo
 from pathlib import Path
 
 try:
@@ -57,12 +58,45 @@ class _FakeService:
             plan=_FakeStore("计划"),
         )
         self.closed = False
+        self._notes = [
+            NoteInfo(
+                path=Path("vault/notes/2026-09-15-注意力机制.md"),
+                title="注意力机制",
+                date="2026-09-15",
+                tags=("transformer",),
+                body="# 注意力机制\n\n让模型自己决定看哪里。",
+            ),
+            NoteInfo(
+                path=Path("vault/notes/2026-09-10-梯度下降.md"),
+                title="梯度下降",
+                date="2026-09-10",
+                tags=("optimizer",),
+                body="# 梯度下降\n\n沿着梯度反方向走一步。",
+            ),
+        ]
 
     def list_notes(self) -> list:
-        return [
-            SimpleNamespace(title="注意力机制", date="2026-09-15", tags=("transformer",)),
-            SimpleNamespace(title="梯度下降", date="2026-09-10", tags=()),
-        ]
+        return list(self._notes)
+
+    def search_notes(self, query: str, limit: int = 5, *, tag: str = "") -> list:
+        """形状照真实实现来：返回 (笔记, 摘要)。匹配规则简化了——
+        真正的匹配逻辑在 test_notes.py 里测。"""
+        picked = [n for n in self._notes if not tag or tag in n.tags]
+        if query not in {"", "*"}:
+            key = query.lower()
+            picked = [
+                n for n in picked
+                if key in n.title.lower()
+                or key in n.body.lower()
+                or any(key in t.lower() for t in n.tags)
+            ]
+        return [(n, n.body.split("\n\n")[-1]) for n in picked[:limit]]
+
+    def read_note(self, name: str) -> NoteInfo:
+        for info in self._notes:
+            if info.path.name == name:
+                return info
+        raise NoteError(f"没找到「{name}」")
 
     async def ask(self, text: str, *, on_event=None) -> Reply:
         if on_event is not None:
@@ -137,7 +171,58 @@ class WebAppTest(unittest.TestCase):
             html = response.read().decode()
         self.assertEqual(response.status, 200)
         self.assertIn("Divana", html)
-        self.assertIn("/api/ask", html)  # 页面确实连到了后端
+        # 页面把样式和脚本拆出去了，两个引用都得在
+        self.assertIn("/static/style.css", html)
+        self.assertIn("/static/app.js", html)
+
+    def test_static_files_are_mounted(self) -> None:
+        with self.get("/static/app.js") as response:
+            js = response.read().decode()
+        self.assertEqual(response.status, 200)
+        self.assertIn("/api/ask", js)  # 前端确实连到了后端
+
+        with self.get("/static/style.css") as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("--green", response.read().decode())
+
+    def test_notes_list_returns_entries_and_all_tags(self) -> None:
+        with self.get("/api/notes") as response:
+            data = json.loads(response.read())
+
+        self.assertEqual(len(data["notes"]), 2)
+        # tags 是"所有笔记出现过的标签"，和筛选无关，否则点完筛选标签就消失了
+        self.assertEqual(data["tags"], ["optimizer", "transformer"])
+        self.assertEqual(data["notes"][0]["name"], "2026-09-15-注意力机制.md")
+        self.assertIn("snippet", data["notes"][0])
+
+    def test_notes_search_by_keyword(self) -> None:
+        # URL 里不能直接放中文，得先编码——浏览器那边由 URLSearchParams 代劳
+        with self.get(f"/api/notes?q={urllib.parse.quote('梯度')}") as response:
+            data = json.loads(response.read())
+        self.assertEqual([n["title"] for n in data["notes"]], ["梯度下降"])
+
+    def test_notes_filter_by_tag(self) -> None:
+        with self.get("/api/notes?tag=transformer") as response:
+            data = json.loads(response.read())
+        self.assertEqual([n["title"] for n in data["notes"]], ["注意力机制"])
+
+    def test_note_detail_returns_body(self) -> None:
+        name = urllib.parse.quote("2026-09-15-注意力机制.md")
+        with self.get(f"/api/note?name={name}") as response:
+            data = json.loads(response.read())
+        self.assertEqual(data["title"], "注意力机制")
+        self.assertIn("让模型自己决定看哪里", data["body"])
+        self.assertEqual(data["tags"], ["transformer"])
+
+    def test_note_detail_without_name_is_400(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/api/note")
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_unknown_note_is_404(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/api/note?name=nope.md")
+        self.assertEqual(ctx.exception.code, 404)
 
     def test_state_returns_the_sidebar_data(self) -> None:
         with self.get("/api/state") as response:

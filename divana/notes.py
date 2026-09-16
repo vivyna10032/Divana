@@ -227,10 +227,14 @@ class NoteStore:
             return []
         return [self._load(path) for path in sorted(self.notes_dir.glob("*.md"), reverse=True)]
 
-    def search(self, query: str, limit: int = 5) -> list[tuple[NoteInfo, str]]:
+    def search(
+        self, query: str, limit: int = 5, *, tag: str = ""
+    ) -> list[tuple[NoteInfo, str]]:
         """找笔记，返回 (笔记, 摘要)。
 
         query 传 "*" 或空字符串表示"列出最近的几篇"。
+        tag 给了就只在这个标签里找——网页上的标签筛选走这条路，
+        不能用关键词凑合（搜 "transformer" 会把正文里提过它的笔记也捞出来）。
         """
         query = query.strip()
         list_mode = query in {"", "*"}
@@ -238,6 +242,8 @@ class NoteStore:
 
         hits: list[tuple[int, NoteInfo, str]] = []
         for info in self.list_all():
+            if tag and tag not in info.tags:
+                continue
             if list_mode:
                 hits.append((0, info, _snippet(info, "")))
                 continue

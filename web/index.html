@@ -4,399 +4,86 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Divana</title>
-<style>
-  :root {
-    --bg: #f6f7f6;
-    --card: #ffffff;
-    --line: #e6e8e6;
-    --text: #1f2421;
-    --muted: #7b837c;
-    --green: #16a34a;
-    --green-soft: #eaf6ee;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  }
-  .app { display: flex; height: 100vh; gap: 16px; padding: 16px; }
-
-  /* ---------- 左：聊天 ---------- */
-  .chat {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    overflow: hidden;
-  }
-  .chat header {
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--line);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .logo {
-    width: 26px; height: 26px;
-    border-radius: 7px;
-    background: var(--green);
-    color: #fff;
-    display: grid; place-items: center;
-    font-weight: 700; font-size: 14px;
-  }
-  .chat header h1 { font-size: 15px; margin: 0; font-weight: 600; }
-  .chat header .sub { color: var(--muted); font-size: 13px; }
-
-  #messages { flex: 1; overflow-y: auto; padding: 22px 24px; }
-  .empty { color: var(--muted); text-align: center; margin-top: 15vh; }
-  .empty .big { font-size: 20px; color: var(--text); margin-bottom: 6px; }
-
-  .msg { display: flex; margin-bottom: 20px; }
-  .msg.user { justify-content: flex-end; }
-  .bubble {
-    max-width: 78%;
-    padding: 12px 16px;
-    border-radius: 12px;
-    overflow-wrap: anywhere;
-  }
-  .msg.user .bubble { background: var(--green-soft); border: 1px solid #d3ead9; }
-  .msg.assistant .bubble { background: #fafbfa; border: 1px solid var(--line); }
-  .bubble > :first-child { margin-top: 0; }
-  .bubble > :last-child { margin-bottom: 0; }
-  .bubble h2, .bubble h3, .bubble h4 { font-size: 15px; margin: 16px 0 8px; }
-  .bubble p { margin: 8px 0; }
-  .bubble ul, .bubble ol { margin: 8px 0; padding-left: 22px; }
-  .bubble li { margin: 4px 0; }
-  .bubble code {
-    background: #eef1ee; padding: 1px 5px; border-radius: 4px;
-    font: 13px/1.5 Consolas, monospace;
-  }
-  .bubble blockquote {
-    margin: 8px 0; padding: 2px 0 2px 12px;
-    border-left: 3px solid var(--line); color: var(--muted);
-  }
-  .bubble a { color: var(--green); }
-  .tool {
-    font: 12px/1.6 Consolas, monospace;
-    color: var(--muted);
-    background: #f2f4f2;
-    border: 1px dashed var(--line);
-    border-radius: 8px;
-    padding: 6px 10px;
-    margin-bottom: 10px;
-    overflow-wrap: anywhere;
-  }
-  .thinking { color: var(--muted); font-size: 13px; }
-  .error { color: #b91c1c; }
-
-  form {
-    border-top: 1px solid var(--line);
-    padding: 12px 16px;
-    display: flex; gap: 10px; align-items: flex-end;
-  }
-  textarea {
-    flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px;
-    padding: 10px 12px; font: inherit; max-height: 160px; min-height: 44px;
-    background: #fcfdfc;
-  }
-  textarea:focus { outline: 2px solid #cfe9d8; border-color: var(--green); }
-  button {
-    border: 0; border-radius: 10px; background: var(--green); color: #fff;
-    padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer;
-  }
-  button:disabled { background: #a9c9b6; cursor: default; }
-  button.ghost { background: #eef1ee; color: var(--text); font-weight: 500; }
-
-  /* ---------- 右：侧边栏 ---------- */
-  .side { width: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-  .panel {
-    background: var(--card); border: 1px solid var(--line);
-    border-radius: 14px; padding: 14px 16px;
-  }
-  .panel h2 {
-    font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600;
-    letter-spacing: .3px;
-  }
-  .panel .body { font-size: 13.5px; color: #33403a; }
-  .panel .body > :first-child { margin-top: 0; }
-  .panel .body > :last-child { margin-bottom: 0; }
-  .panel .body p { margin: 6px 0; }
-  .panel .body ul, .panel .body ol { margin: 6px 0; padding-left: 18px; }
-  .note-item { padding: 7px 0; border-top: 1px solid #f0f2f0; }
-  .note-item:first-child { border-top: 0; }
-  .note-item .t { font-size: 13.5px; }
-  .note-item .m { color: var(--muted); font-size: 12px; margin-top: 2px; }
-  .panel .actions { margin-top: 10px; }
-  .panel .actions button { font-size: 13px; padding: 7px 12px; }
-  #summary-out { margin-top: 10px; font-size: 13px; }
-</style>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="app">
-  <main class="chat">
-    <header>
+  <nav class="nav">
+    <div class="brand">
       <div class="logo">D</div>
       <div>
-        <h1>Divana</h1>
-        <div class="sub">你的 AI 学习伙伴</div>
-      </div>
-    </header>
-
-    <div id="messages">
-      <div class="empty">
-        <div class="big">你好，我是 Divana</div>
-        <div>我记得你的学习目标，也知道你正在学什么。</div>
+        <div class="name">Divana</div>
+        <div class="sub">AI 学习伙伴</div>
       </div>
     </div>
+    <button class="nav-item active" data-view="chat" type="button">对话</button>
+    <button class="nav-item" data-view="notes" type="button">知识库</button>
+  </nav>
 
-    <form id="composer">
-      <textarea id="input" rows="1" placeholder="有问题尽管问…（Enter 发送，Shift+Enter 换行）"></textarea>
-      <button id="send" type="submit">发送</button>
-    </form>
-  </main>
-
-  <aside class="side">
-    <section class="panel">
-      <h2>学习目标</h2>
-      <div class="body" id="p-goal">读取中…</div>
-    </section>
-    <section class="panel">
-      <h2>现在的位置</h2>
-      <div class="body" id="p-now">读取中…</div>
-    </section>
-    <section class="panel">
-      <h2>下一步</h2>
-      <div class="body" id="p-next">读取中…</div>
-    </section>
-    <section class="panel">
-      <h2>最近的笔记 <span id="n-count"></span></h2>
-      <div id="notes"></div>
-    </section>
-    <section class="panel">
-      <h2>这次对话</h2>
-      <div class="actions">
-        <button class="ghost" id="btn-summary" type="button">整理成笔记</button>
+  <!-- ------------------------------------------------ 对话 -->
+  <section class="view" id="view-chat">
+    <main class="chat">
+      <div id="messages">
+        <div class="empty">
+          <div class="big">你好，我是 Divana</div>
+          <div>我记得你的学习目标，也知道你正在学什么。</div>
+        </div>
       </div>
-      <div id="summary-out"></div>
-    </section>
-  </aside>
+
+      <div class="quick" id="quick">
+        <button type="button" data-prompt="我现在该学什么？">我现在该学什么？</button>
+        <button type="button" data-prompt="帮我制定学习计划">帮我制定学习计划</button>
+        <button type="button" data-prompt="总结今天的学习内容">总结今天的学习内容</button>
+      </div>
+
+      <form id="composer">
+        <textarea id="input" rows="1" placeholder="有问题尽管问…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button id="send" type="submit">发送</button>
+      </form>
+    </main>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>学习目标</h2>
+        <div class="body" id="p-goal">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>现在的位置</h2>
+        <div class="body" id="p-now">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>下一步</h2>
+        <div class="body" id="p-next">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>最近的笔记 <span class="count" id="n-count"></span></h2>
+        <div id="notes"></div>
+      </section>
+      <section class="panel">
+        <h2>这次对话</h2>
+        <div class="actions">
+          <button class="ghost" id="btn-summary" type="button">整理成笔记</button>
+        </div>
+        <div id="summary-out"></div>
+      </section>
+    </aside>
+  </section>
+
+  <!-- ------------------------------------------------ 知识库 -->
+  <section class="view hidden" id="view-notes">
+    <div class="notes-list">
+      <div class="notes-head">
+        <input id="note-search" type="search" placeholder="搜索标题、标签或正文…">
+        <div class="tags" id="note-tags"></div>
+      </div>
+      <div id="note-items"><div class="hint">读取中…</div></div>
+    </div>
+    <article class="note-detail" id="note-detail">
+      <div class="hint">从左边选一篇笔记</div>
+    </article>
+  </section>
 </div>
 
-<script>
-const $ = (id) => document.getElementById(id);
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-/* 行内的几种格式。先转义再替换，所以模型输出的 HTML 不会被执行。 */
-function inline(s) {
-  return s
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-             '<a href="$2" target="_blank" rel="noopener">$1</a>');
-}
-
-/* 够用的 markdown 渲染：标题、列表、引用、段落。不求完整，求看得清。 */
-function renderMarkdown(text) {
-  const out = [];
-  let list = null;
-  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-
-  for (const raw of escapeHtml(text).split("\n")) {
-    const line = raw.trim();
-    if (!line) { closeList(); continue; }
-    let m;
-    if ((m = line.match(/^#{2,4}\s+(.*)/))) { closeList(); out.push(`<h3>${inline(m[1])}</h3>`); continue; }
-    if ((m = line.match(/^#\s+(.*)/))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); continue; }
-    if ((m = line.match(/^[-*]\s+(.*)/))) {
-      if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; }
-      out.push(`<li>${inline(m[1])}</li>`); continue;
-    }
-    if ((m = line.match(/^\d+[.)]\s+(.*)/))) {
-      if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; }
-      out.push(`<li>${inline(m[1])}</li>`); continue;
-    }
-    if ((m = line.match(/^>\s?(.*)/))) { closeList(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); continue; }
-    closeList();
-    out.push(`<p>${inline(line)}</p>`);
-  }
-  closeList();
-  return out.join("");
-}
-
-function clearEmpty() {
-  const e = document.querySelector(".empty");
-  if (e) e.remove();
-}
-
-function scrollDown() {
-  const box = $("messages");
-  box.scrollTop = box.scrollHeight;
-}
-
-function addUser(text) {
-  clearEmpty();
-  const el = document.createElement("div");
-  el.className = "msg user";
-  el.innerHTML = `<div class="bubble">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
-  $("messages").appendChild(el);
-  scrollDown();
-}
-
-function addAssistant() {
-  clearEmpty();
-  const el = document.createElement("div");
-  el.className = "msg assistant";
-  el.innerHTML = `<div class="bubble"><div class="thinking">思考中…</div></div>`;
-  $("messages").appendChild(el);
-  scrollDown();
-  return { el, bubble: el.querySelector(".bubble") };
-}
-
-function addToolLine(bubble, name, args) {
-  const line = document.createElement("div");
-  line.className = "tool";
-  const short = args && args.length > 120 ? args.slice(0, 120) + "…" : (args || "");
-  line.textContent = `[工具] ${name}(${short})`;
-  bubble.prepend(line);
-  scrollDown();
-}
-
-async function ask(text) {
-  addUser(text);
-  const { bubble } = addAssistant();
-  let buffer = "", answer = "", body = null;
-
-  const fail = (message) => {
-    if (body) body.innerHTML = `<p class="error">${escapeHtml(message)}</p>`;
-    else bubble.innerHTML = `<div class="error">${escapeHtml(message)}</div>`;
-  };
-
-  try {
-    const res = await fetch("/api/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok || !res.body) {
-      const info = await res.json().catch(() => ({}));
-      fail(info.error || `请求失败（${res.status}）`);
-      return;
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      let cut;
-      while ((cut = buffer.indexOf("\n\n")) >= 0) {
-        const frame = buffer.slice(0, cut);
-        buffer = buffer.slice(cut + 2);
-
-        let name = "message", data = "";
-        for (const line of frame.split("\n")) {
-          if (line.startsWith("event: ")) name = line.slice(7).trim();
-          else if (line.startsWith("data: ")) data += line.slice(6);
-        }
-        let payload = {};
-        try { payload = JSON.parse(data || "{}"); } catch (e) { /* 半截帧，忽略 */ }
-
-        if (name === "delta") {
-          answer += payload.text || "";
-          if (!body) { bubble.innerHTML = ""; body = bubble; }
-          body.innerHTML = renderMarkdown(answer);
-          scrollDown();
-        } else if (name === "tool") {
-          addToolLine(bubble, payload.name, payload.arguments);
-        } else if (name === "error") {
-          fail(payload.message || "出错了");
-        }
-      }
-    }
-    if (!body) bubble.innerHTML = '<div class="thinking">（她没有返回内容）</div>';
-  } catch (err) {
-    fail(`连接断了：${err}`);
-  }
-}
-
-async function loadState() {
-  try {
-    const s = await (await fetch("/api/state")).json();
-    $("p-goal").innerHTML = renderMarkdown(s.goal || "（还没记录）");
-    $("p-now").innerHTML = renderMarkdown(s.plan_now || "（还没定）");
-    $("p-next").innerHTML = renderMarkdown(s.plan_next || "（还没定）");
-    $("n-count").textContent = s.note_count ? `（${s.note_count}）` : "";
-
-    const box = $("notes");
-    if (!s.notes.length) {
-      box.innerHTML = '<div class="body">还没有笔记。</div>';
-      return;
-    }
-    box.innerHTML = s.notes.map((n) => `
-      <div class="note-item">
-        <div class="t">${escapeHtml(n.title)}</div>
-        <div class="m">${escapeHtml(n.date || "无日期")}${n.tags.length ? " · " + escapeHtml(n.tags.join("、")) : ""}</div>
-      </div>`).join("");
-  } catch (err) {
-    $("p-goal").textContent = `读取失败：${err}`;
-  }
-}
-
-async function makeSummary() {
-  const btn = $("btn-summary");
-  const box = $("summary-out");
-  btn.disabled = true;
-  box.innerHTML = '<div class="thinking">正在整理这次对话…</div>';
-  try {
-    const res = await fetch("/api/summary", { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) {
-      box.innerHTML = `<div class="error">${escapeHtml(data.error || "失败")}</div>`;
-      return;
-    }
-    box.innerHTML = renderMarkdown(data.markdown);
-    loadState();
-  } catch (err) {
-    box.innerHTML = `<div class="error">${escapeHtml(String(err))}</div>`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-const input = $("input");
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 160) + "px";
-});
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("composer").requestSubmit(); }
-});
-
-$("composer").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = "";
-  input.style.height = "auto";
-  $("send").disabled = true;
-  try { await ask(text); } finally { $("send").disabled = false; input.focus(); }
-});
-
-$("btn-summary").addEventListener("click", makeSummary);
-
-loadState();
-input.focus();
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>

@@ -26,16 +26,19 @@ from dotenv import load_dotenv
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
 
 from .config import Settings, setup_agents_sdk
 from .contracts import AskEvent, SummarizeError, TextDelta, ToolCalled
+from .notes import NoteError
 
 if TYPE_CHECKING:  # 只为类型标注：运行时不 import，这样这个模块能脱离 agent 栈单独测
     from .service import DivanaService
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INDEX_PATH = PROJECT_ROOT / "web" / "index.html"
+WEB_DIR = PROJECT_ROOT / "web"
+INDEX_PATH = WEB_DIR / "index.html"
 
 # 只监听本机。**别改成 0.0.0.0**——这个服务能读你本地的文件、用你的 API key，
 # 暴露到局域网就等于把它们交出去。
@@ -44,6 +47,9 @@ PORT = 8765
 
 # 侧边栏放几篇最近的笔记
 SIDEBAR_NOTES = 5
+
+# 知识库页面一次最多列几篇
+NOTES_LIMIT = 200
 
 
 def service_of(request: Request) -> "DivanaService":
@@ -138,6 +144,58 @@ async def ask(request: Request) -> Response:
     )
 
 
+async def notes(request: Request) -> Response:
+    """笔记列表。`q` 是关键词，`tag` 是标签筛选。"""
+    service = service_of(request)
+    query = request.query_params.get("q", "").strip()
+    tag = request.query_params.get("tag", "").strip()
+
+    all_notes = service.list_notes()
+    tags = sorted({one for info in all_notes for one in info.tags})
+    # query 为空时传 "*"：那是 notes.search 里"列出全部"的约定
+    entries = service.search_notes(query or "*", limit=NOTES_LIMIT, tag=tag)
+
+    return JSONResponse(
+        {
+            "tags": tags,
+            "notes": [
+                {
+                    "name": info.path.name,
+                    "title": info.title,
+                    "date": info.date,
+                    "tags": list(info.tags),
+                    "snippet": snippet,
+                }
+                for info, snippet in entries
+            ],
+        }
+    )
+
+
+async def note(request: Request) -> Response:
+    """单篇笔记的全文。用查询参数而不是路径参数——中文文件名放路径里容易踩编码。"""
+    service = service_of(request)
+    name = request.query_params.get("name", "").strip()
+    if not name:
+        return JSONResponse({"error": "缺少 name 参数"}, status_code=400)
+
+    try:
+        info = service.read_note(name)
+    except NoteError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+
+    return JSONResponse(
+        {
+            "name": info.path.name,
+            "title": info.title,
+            "date": info.date,
+            "tags": list(info.tags),
+            "body": info.body,
+            "path": str(info.path),
+        }
+    )
+
+
 async def summary(request: Request) -> Response:
     service = service_of(request)
     try:
@@ -156,7 +214,10 @@ def create_app(service: "DivanaService") -> Starlette:
     app = Starlette(
         routes=[
             Route("/", index),
+            Mount("/static", app=StaticFiles(directory=WEB_DIR), name="static"),
             Route("/api/state", state),
+            Route("/api/notes", notes),
+            Route("/api/note", note),
             Route("/api/ask", ask, methods=["POST"]),
             Route("/api/summary", summary, methods=["POST"]),
         ]

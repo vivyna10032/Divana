@@ -219,6 +219,28 @@ class NoteStoreSearchTest(unittest.TestCase):
     def test_limit_is_respected(self) -> None:
         self.assertEqual(len(self.store.search("*", limit=1)), 1)
 
+    def test_tag_filter_only_returns_that_tag(self) -> None:
+        hits = self.store.search("*", tag="optimizer")
+        self.assertEqual([info.title for info, _ in hits], ["梯度下降"])
+
+    def test_tag_filter_does_not_match_body_mentions(self) -> None:
+        """按标签筛就该只认标签——不然正文里提过一嘴的也会被捞出来。"""
+        self.store.save(
+            "笔记里提到 optimizer 的另一篇",
+            "这篇正文里写了 optimizer 这个词，但没有这个标签。",
+            [],
+            today=date(2026, 9, 5),
+        )
+        hits = self.store.search("*", tag="optimizer")
+        self.assertEqual([info.title for info, _ in hits], ["梯度下降"])
+
+    def test_tag_filter_can_combine_with_keyword(self) -> None:
+        self.assertEqual(len(self.store.search("梯度", tag="optimizer")), 1)
+        self.assertEqual(len(self.store.search("梯度", tag="transformer")), 0)
+
+    def test_unknown_tag_returns_nothing(self) -> None:
+        self.assertEqual(self.store.search("*", tag="不存在的标签"), [])
+
     def test_snippet_prefers_the_matching_line(self) -> None:
         hits = self.store.search("反方向")
         self.assertIn("反方向", hits[0][1])
