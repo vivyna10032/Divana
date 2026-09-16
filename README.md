@@ -200,6 +200,35 @@ python -m divana --stream
 默认不开。因为它是一条比较新的代码路径（走 SDK 的流式接口），先用验证过的
 非流式跑；想出问题也好定位。
 
+## 学习手册（PDF）
+
+`output/pdf/Divana-Agent-学习手册.pdf` 是一本 17 页的小册子，把这个项目里用到的
+Agent 知识、架构取舍和工程技巧整理成了一册，专门为了两件事：把项目读薄，
+以及面试前拿来复习。
+
+```
+第 1 章  这个项目是什么
+第 2 章  核心概念（agent loop / instructions / 工具 / 上下文工程 / 记忆分层 / 多 agent）
+第 3 章  工程技巧（分层与抽象时机 / 可测性 / 安全 / 健壮性）
+第 4 章  十个真实的坑（最有价值的一章）
+第 5 章  术语表（中英对照，每一条对应到项目里的哪一行）
+第 6 章  面试速查（关键数字、可讲的故事、常见问题怎么答）
+第 7 章  接下来
+```
+
+**它进了仓库是有意的**：推到 GitHub 之后，你在手机上就能直接打开看，
+不用回寝室开电脑。
+
+想改内容或者项目更新后重新生成：
+
+```powershell
+# 用自带的运行时 Python（里面有 reportlab）
+& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" docs\handbook\build_handbook.py
+```
+
+正文全部在 `docs/handbook/content.py` 里，用 `("类型", 内容)` 的形式写成数据，
+排版在 `build_handbook.py` 里。改文字不用碰排版。
+
 ## 网页版
 
 ```powershell
@@ -336,6 +365,10 @@ https://example.com/some-post 这篇博客的核心观点是什么
 │  ├─ style.css           样式
 │  ├─ app.js              逻辑（聊天流式、知识库、侧边栏）
 │  └─ markdown.js         markdown 渲染（不碰 DOM，可用 node 测试）
+├─ docs/handbook/         学习手册的正文与生成脚本
+│  ├─ content.py          正文（改文字只改这个文件）
+│  └─ build_handbook.py   排版（reportlab）
+├─ output/pdf/            生成好的 PDF
 ├─ divana/
 │  ├─ config.py           配置：密钥、接口地址、模型、搜索
 │  ├─ agent.py            agent 定义（人格 + 画像拼成 instructions）
