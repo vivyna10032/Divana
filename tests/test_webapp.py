@@ -25,6 +25,7 @@ from types import SimpleNamespace
 
 from divana.contracts import Reply, Summary, TextDelta, ToolCall, ToolCalled
 from divana.notes import Note, NoteError, NoteInfo
+from divana.plan import Milestone, PlanProgress, Stage
 from pathlib import Path
 
 try:
@@ -125,6 +126,18 @@ class _FakeStore:
     def read_section(self, section: str) -> str:
         return f"{self.label}的「{section}」"
 
+    def progress(self) -> PlanProgress:
+        return PlanProgress(
+            stages=(
+                Stage(
+                    name="阶段一",
+                    milestones=(Milestone("做完 A", True), Milestone("做完 B", False)),
+                ),
+            ),
+            done=1,
+            total=2,
+        )
+
 
 class _FakeService:
     """假的服务层。真实那套要 agent 栈，这里只关心接口形状。"""
@@ -176,6 +189,9 @@ class _FakeService:
             if info.path.name == name:
                 return info
         raise NoteError(f"没找到「{name}」")
+
+    def plan_progress(self) -> PlanProgress:
+        return self.context.plan.progress()
 
     async def ask(self, text: str, *, on_event=None) -> Reply:
         if on_event is not None:
@@ -292,6 +308,17 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(data["title"], "注意力机制")
         self.assertIn("让模型自己决定看哪里", data["body"])
         self.assertEqual(data["tags"], ["transformer"])
+
+    def test_plan_returns_progress_and_stages(self) -> None:
+        with self.get("/api/plan") as response:
+            data = json.loads(response.read())
+
+        self.assertEqual(data["now"], "计划的「现在的位置」")
+        self.assertEqual(data["next"], "计划的「下一步」")
+        self.assertEqual((data["done"], data["total"], data["percent"]), (1, 2, 50))
+        self.assertEqual(data["stages"][0]["name"], "阶段一")
+        self.assertTrue(data["stages"][0]["milestones"][0]["done"])
+        self.assertFalse(data["stages"][0]["milestones"][1]["done"])
 
     def test_note_detail_without_name_is_400(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as ctx:

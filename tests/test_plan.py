@@ -18,8 +18,10 @@ from divana.plan import (
     MAX_SECTION_CHARS,
     SECTIONS,
     TEMPLATE,
+    UNGROUPED,
     PlanError,
     PlanStore,
+    parse_milestones,
 )
 from divana.profile import ProfileError
 
@@ -142,6 +144,80 @@ class PlanStoreTest(unittest.TestCase):
 
         leftovers = sorted(p.name for p in self.path.parent.iterdir())
         self.assertEqual(leftovers, ["plan.md"])
+
+    def test_progress_counts_milestones(self) -> None:
+        store = self.store()
+        store.write_section("路线图", "### 阶段一\n- [x] 已做完的\n- [ ] 还没做的")
+
+        progress = store.progress()
+        self.assertEqual((progress.done, progress.total), (1, 2))
+        self.assertEqual(progress.percent, 50)
+
+    def test_progress_ignores_other_sections(self) -> None:
+        """\"下一步\"那节里也可能有 `- [ ]`，混进来进度就虚高了。"""
+        store = self.store()
+        store.write_section("路线图", "### 阶段一\n- [x] 路线图里的\n- [ ] 也是路线图里的")
+        store.write_section("下一步", "- [ ] 这件事不属于路线图")
+
+        progress = store.progress()
+        self.assertEqual((progress.done, progress.total), (1, 2))
+
+
+class ParseMilestonesTest(unittest.TestCase):
+    """解析器要能容错——markdown 是模型写的，格式不可能百分百稳定。"""
+
+    def test_empty_text(self) -> None:
+        progress = parse_milestones("")
+        self.assertEqual((progress.done, progress.total), (0, 0))
+        self.assertEqual(progress.percent, 0)  # 不能除以零
+        self.assertEqual(progress.stages, ())
+
+    def test_counts_done_and_pending(self) -> None:
+        progress = parse_milestones("- [x] 搞懂工具调用\n- [ ] 自己写一个 agent")
+        self.assertEqual((progress.done, progress.total), (1, 2))
+        self.assertEqual(progress.percent, 50)
+
+    def test_percent_is_rounded(self) -> None:
+        self.assertEqual(parse_milestones("- [x] a\n- [ ] b\n- [ ] c").percent, 33)
+
+    def test_groups_by_heading(self) -> None:
+        text = "### 阶段一：基础\n- [x] a\n\n### 阶段二：进阶\n- [ ] b\n- [ ] c"
+        progress = parse_milestones(text)
+        self.assertEqual([s.name for s in progress.stages], ["阶段一：基础", "阶段二：进阶"])
+        self.assertEqual(len(progress.stages[1].milestones), 2)
+
+    def test_milestones_before_any_heading(self) -> None:
+        progress = parse_milestones("- [ ] 先做这个")
+        self.assertEqual(progress.stages[0].name, UNGROUPED)
+
+    def test_accepts_common_checkbox_styles(self) -> None:
+        text = "* [X] 大写 X\n- [✓] 对勾\n* [ ] 星号开头"
+        progress = parse_milestones(text)
+        self.assertEqual((progress.done, progress.total), (2, 3))
+
+    def test_spaces_inside_brackets(self) -> None:
+        progress = parse_milestones("- [ x ] 括号里有空格")
+        self.assertEqual((progress.done, progress.total), (1, 1))
+
+    def test_broken_checkboxes_are_skipped_not_fatal(self) -> None:
+        text = "- [] 空的括号\n- [x 少了右括号\n- 普通列表项\n- [ ] 正常的"
+        progress = parse_milestones(text)
+        self.assertEqual((progress.done, progress.total), (0, 1))
+        self.assertEqual(progress.stages[0].milestones[0].text, "正常的")
+
+    def test_prose_between_milestones_is_ignored(self) -> None:
+        text = (
+            "这一阶段的目标是先跑通最小闭环。\n\n"
+            "- [x] a\n\n"
+            "> 提示：别急着上框架。\n\n"
+            "- [ ] b\n"
+        )
+        progress = parse_milestones(text)
+        self.assertEqual((progress.done, progress.total), (1, 2))
+
+    def test_text_without_checkboxes(self) -> None:
+        progress = parse_milestones("（还没有阶段。聊清楚方向之后再说。）")
+        self.assertEqual(progress.total, 0)
 
 
 if __name__ == "__main__":

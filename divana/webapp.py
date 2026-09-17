@@ -196,6 +196,33 @@ async def note(request: Request) -> Response:
     )
 
 
+async def plan(request: Request) -> Response:
+    """计划页要的全部内容。进度是从 markdown 的 checkbox 里真数出来的，不是估的。"""
+    service = service_of(request)
+    store = service.context.plan
+    progress = service.plan_progress()
+
+    return JSONResponse(
+        {
+            "now": store.read_section("现在的位置"),
+            "next": store.read_section("下一步"),
+            "retro": store.read_section("复盘记录"),
+            "done": progress.done,
+            "total": progress.total,
+            "percent": progress.percent,
+            "stages": [
+                {
+                    "name": stage.name,
+                    "milestones": [
+                        {"text": m.text, "done": m.done} for m in stage.milestones
+                    ],
+                }
+                for stage in progress.stages
+            ],
+        }
+    )
+
+
 async def summary(request: Request) -> Response:
     service = service_of(request)
     try:
@@ -218,6 +245,7 @@ def create_app(service: "DivanaService") -> Starlette:
             Route("/api/state", state),
             Route("/api/notes", notes),
             Route("/api/note", note),
+            Route("/api/plan", plan),
             Route("/api/ask", ask, methods=["POST"]),
             Route("/api/summary", summary, methods=["POST"]),
         ]

@@ -17,6 +17,7 @@
       </div>
     </div>
     <button class="nav-item active" data-view="chat" type="button">对话</button>
+    <button class="nav-item" data-view="plan" type="button">学习计划</button>
     <button class="nav-item" data-view="notes" type="button">知识库</button>
   </nav>
 
@@ -65,6 +66,34 @@
           <button class="ghost" id="btn-summary" type="button">整理成笔记</button>
         </div>
         <div id="summary-out"></div>
+      </section>
+    </aside>
+  </section>
+
+  <!-- ------------------------------------------------ 学习计划 -->
+  <section class="view hidden" id="view-plan">
+    <main class="plan-main" id="plan-stages">
+      <div class="hint">读取中…</div>
+    </main>
+    <aside class="side">
+      <section class="panel">
+        <h2>里程碑进度</h2>
+        <div class="progress">
+          <div class="bar"><span id="plan-bar"></span></div>
+        </div>
+        <div class="body pct" id="plan-pct">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>现在的位置</h2>
+        <div class="body" id="plan-now">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>下一步</h2>
+        <div class="body" id="plan-next">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>复盘记录</h2>
+        <div class="body" id="plan-retro">读取中…</div>
       </section>
     </aside>
   </section>

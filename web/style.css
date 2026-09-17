@@ -185,3 +185,29 @@ button.ghost { background: #eef1ee; color: var(--text); font-weight: 500; }
 .note-detail a { color: var(--green); }
 
 .hint { color: var(--muted); font-size: 13.5px; padding: 14px; }
+
+/* ------------------------------------------------ 学习计划 */
+.plan-main { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.stage {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px 20px;
+}
+.stage.current { border-color: #c6e3d0; }
+.stage h3 { margin: 0 0 10px; font-size: 15px; }
+.stage h3 .badge {
+  font-size: 11px; font-weight: 500; color: #14612f; background: var(--green-soft);
+  border-radius: 999px; padding: 1px 8px; margin-left: 6px; vertical-align: 2px;
+}
+.ms { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: 14px; }
+.ms .mark {
+  flex: none; width: 17px; height: 17px; margin-top: 3px; border-radius: 50%;
+  border: 1.5px solid #cfd6d1; display: grid; place-items: center;
+  font-size: 11px; color: #fff; line-height: 1;
+}
+.ms.done .mark { background: var(--green); border-color: var(--green); }
+.ms.done .label { color: var(--muted); }
+.ms .label a { color: var(--green); }
+.progress { margin-bottom: 6px; }
+.progress .bar { height: 8px; background: #e9efeb; border-radius: 999px; overflow: hidden; }
+.progress .bar span { display: block; height: 100%; width: 0; background: var(--green); transition: width .3s; }
+.pct { color: var(--muted); font-size: 13px; }

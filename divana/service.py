@@ -26,6 +26,7 @@ from .contracts import (
     ToolCalled,
 )
 from .notes import NoteInfo
+from .plan import PlanProgress
 from .search import SearchResult
 from .session import DEFAULT_SESSION_ID, open_session
 from .summarize import summarize_session
@@ -105,6 +106,10 @@ class DivanaService:
 
     def read_plan(self) -> str:
         return self.context.plan.read()
+
+    def plan_progress(self) -> PlanProgress:
+        """路线图的完成情况：分阶段的里程碑列表 + 已完成/总数/百分比。"""
+        return self.context.plan.progress()
 
     def list_notes(self) -> list[NoteInfo]:
         return self.context.notes.list_all()

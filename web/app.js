@@ -23,6 +23,7 @@ function showView(name) {
     btn.classList.toggle("active", btn.dataset.view === name);
   });
   if (name === "notes") loadNotes();   // 每次切过来都刷新，免得看到旧的
+  if (name === "plan") loadPlan();
 }
 
 document.querySelectorAll(".nav-item").forEach((btn) => {
@@ -204,6 +205,51 @@ async function makeSummary() {
   }
 }
 
+/* ---------------------------------------------------------------- 学习计划 */
+
+async function loadPlan() {
+  try {
+    const plan = await api("/api/plan");
+    $("plan-now").innerHTML = renderMarkdown(plan.now || "（还没定）");
+    $("plan-next").innerHTML = renderMarkdown(plan.next || "（还没定）");
+    $("plan-retro").innerHTML = renderMarkdown(plan.retro || "（还没有复盘）");
+
+    $("plan-bar").style.width = plan.percent + "%";
+    $("plan-pct").textContent = plan.total
+      ? `已完成 ${plan.done} / ${plan.total}（${plan.percent}%）`
+      : "路线图里还没有可勾的里程碑";
+
+    renderStages(plan.stages);
+  } catch (err) {
+    $("plan-stages").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+function renderStages(stages) {
+  const box = $("plan-stages");
+  if (!stages.length) {
+    box.innerHTML =
+      '<div class="hint">路线图还是空的。跟她说说你想学什么，她会和你一起把阶段拆出来。</div>';
+    return;
+  }
+
+  // "当前阶段" = 第一个还有没做完的里程碑的阶段
+  const current = stages.findIndex((s) => s.milestones.some((m) => !m.done));
+
+  box.innerHTML = stages.map((stage, i) => {
+    const badge = i === current ? '<span class="badge">当前</span>' : "";
+    const items = stage.milestones.map((m) => `
+      <div class="ms ${m.done ? "done" : ""}">
+        <div class="mark">${m.done ? "✓" : ""}</div>
+        <div class="label">${inline(escapeHtml(m.text))}</div>
+      </div>`).join("");
+    return `<div class="stage ${i === current ? "current" : ""}">
+        <h3>${escapeHtml(stage.name)}${badge}</h3>${items}
+      </div>`;
+  }).join("");
+}
+
 /* ---------------------------------------------------------------- 知识库 */
 
 const notesState = { query: "", tag: "", active: "", notes: [] };
@@ -321,4 +367,5 @@ $("note-search").addEventListener("input", (e) => {
 
 loadState();
 loadNotes();
+loadPlan();
 input.focus();
