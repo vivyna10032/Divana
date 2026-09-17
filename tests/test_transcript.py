@@ -12,6 +12,7 @@ import unittest
 
 from divana.transcript import (
     DEFAULT_TITLE,
+    history_messages,
     message_text,
     render_item,
     render_transcript,
@@ -169,6 +170,35 @@ class SplitTitleTest(unittest.TestCase):
     def test_leading_blank_lines_are_trimmed(self) -> None:
         title, _ = split_title("\n\n# 标题\n正文")
         self.assertEqual(title, "标题")
+
+
+class HistoryMessagesTest(unittest.TestCase):
+    """给界面渲染历史用：只保留"人话"，工具和思考过程都跳过。"""
+
+    def test_keeps_only_user_and_assistant(self) -> None:
+        items = [
+            user_msg("问"),
+            tool_call("search_web"),
+            tool_output("一大段原始数据"),
+            reasoning("模型在想什么"),
+            assistant_msg("答"),
+        ]
+        self.assertEqual(
+            history_messages(items), [("user", "问"), ("assistant", "答")]
+        )
+
+    def test_preserves_order(self) -> None:
+        items = [user_msg("一"), assistant_msg("二"), user_msg("三")]
+        self.assertEqual([role for role, _ in history_messages(items)], ["user", "assistant", "user"])
+
+    def test_skips_empty_text(self) -> None:
+        self.assertEqual(history_messages([user_msg("   "), assistant_msg("")]), [])
+
+    def test_ignores_unknown_items(self) -> None:
+        self.assertEqual(history_messages([None, "字符串", {"foo": "bar"}]), [])
+
+    def test_empty_input(self) -> None:
+        self.assertEqual(history_messages([]), [])
 
 
 if __name__ == "__main__":

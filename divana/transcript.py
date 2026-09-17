@@ -104,6 +104,26 @@ def render_transcript(items: list[Any], *, max_chars: int = MAX_TRANSCRIPT_CHARS
     return "\n\n".join(reversed(kept))
 
 
+def history_messages(items: list[Any]) -> list[tuple[str, str]]:
+    """把会话记录变成 [(角色, 文本)]，给界面渲染历史。
+
+    只保留"人话"：用户和助手说过的话。工具调用、工具结果、模型思考过程都跳过
+    ——那些是给模型看的，不是对话内容（在界面上堆出来只会淹没正文）。
+
+    角色用 "user" / "assistant"，正好对应网页里的左右两种气泡。
+    """
+    messages: list[tuple[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        if role in {"user", "assistant"}:
+            text = message_text(item.get("content"))
+            if text:
+                messages.append((role, text))
+    return messages
+
+
 def split_title(markdown: str, *, default_title: str = DEFAULT_TITLE) -> tuple[str, str]:
     """把总结者的输出拆成标题和正文。
 

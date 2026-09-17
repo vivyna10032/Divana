@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from divana.contracts import Reply, Summary, TextDelta, ToolCall, ToolCalled
 from divana.notes import Note, NoteError, NoteInfo
 from divana.plan import Milestone, PlanProgress, Stage
+from divana.session import SessionInfo
 from pathlib import Path
 
 try:
@@ -193,6 +194,30 @@ class _FakeService:
     def plan_progress(self) -> PlanProgress:
         return self.context.plan.progress()
 
+    def list_sessions(self) -> list:
+        return [
+            SessionInfo(
+                session_id="test-session",
+                created_at="2026-09-17 02:00",
+                updated_at="2026-09-17 03:00",
+                message_count=12,
+                title="帮我看看这个项目",
+            ),
+            SessionInfo(
+                session_id="chat-20260916-200000",
+                created_at="2026-09-16 12:00",
+                updated_at="2026-09-16 12:30",
+                message_count=4,
+                title="旧对话",
+            ),
+        ]
+
+    def switch_session(self, session_id: str) -> None:
+        self.session_id = session_id
+
+    async def history(self, limit: int = 40) -> list:
+        return [("user", "问一句"), ("assistant", "答一句")]
+
     async def ask(self, text: str, *, on_event=None) -> Reply:
         if on_event is not None:
             on_event(ToolCalled(ToolCall("search_web", '{"query": "x"}')))
@@ -319,6 +344,51 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(data["stages"][0]["name"], "阶段一")
         self.assertTrue(data["stages"][0]["milestones"][0]["done"])
         self.assertFalse(data["stages"][0]["milestones"][1]["done"])
+
+    def test_sessions_list_marks_the_current_one(self) -> None:
+        with self.get("/api/sessions") as response:
+            data = json.loads(response.read())
+
+        self.assertEqual(data["current"], "test-session")
+        self.assertEqual(len(data["sessions"]), 2)
+        self.assertEqual(data["sessions"][0]["title"], "帮我看看这个项目")
+        self.assertEqual(data["sessions"][0]["message_count"], 12)
+
+    def test_switch_session_changes_the_current_one(self) -> None:
+        with self.get("/api/sessions") as response:
+            original = json.loads(response.read())["current"]
+        try:
+            with self.post("/api/sessions/switch", {"session_id": "another"}) as res:
+                self.assertEqual(json.loads(res.read())["id"], "another")
+            with self.get("/api/sessions") as response:
+                self.assertEqual(json.loads(response.read())["current"], "another")
+        finally:
+            self.post("/api/sessions/switch", {"session_id": original})
+
+    def test_switch_without_id_is_rejected(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sessions/switch", {})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_new_session_switches_to_a_fresh_id(self) -> None:
+        with self.get("/api/sessions") as response:
+            original = json.loads(response.read())["current"]
+        try:
+            with self.post("/api/sessions/new") as response:
+                new_id = json.loads(response.read())["id"]
+            self.assertTrue(new_id.startswith("chat-"))
+            with self.get("/api/sessions") as response:
+                self.assertEqual(json.loads(response.read())["current"], new_id)
+        finally:
+            self.post("/api/sessions/switch", {"session_id": original})
+
+    def test_history_returns_displayable_messages(self) -> None:
+        with self.get("/api/history") as response:
+            data = json.loads(response.read())
+        self.assertEqual(
+            data["messages"],
+            [{"role": "user", "text": "问一句"}, {"role": "assistant", "text": "答一句"}],
+        )
 
     def test_note_detail_without_name_is_400(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as ctx:

@@ -39,6 +39,22 @@ body {
 .view { flex: 1; display: flex; gap: 16px; min-width: 0; }
 
 /* ------------------------------------------------ 聊天 */
+.sessions { width: 208px; flex: none; display: flex; flex-direction: column; gap: 8px; }
+.new-session {
+  border: 1px solid var(--line); background: var(--card); color: #14612f;
+  border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13.5px;
+  font-weight: 600; cursor: pointer;
+}
+.new-session:hover { background: var(--green-soft); border-color: #cfe0d5; }
+#session-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.session-item { padding: 9px 11px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+.session-item:hover { background: #ecefec; }
+.session-item.active { background: var(--green-soft); border-color: #cfe0d5; }
+.session-item .t {
+  font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.session-item .m { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+
 .chat {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column;

@@ -28,9 +28,15 @@ from .contracts import (
 from .notes import NoteInfo
 from .plan import PlanProgress
 from .search import SearchResult
-from .session import DEFAULT_SESSION_ID, open_session
+from .session import (
+    DEFAULT_SESSION_ID,
+    HISTORY_LIMIT,
+    SessionInfo,
+    list_sessions,
+    open_session,
+)
 from .summarize import summarize_session
-from .transcript import split_title
+from .transcript import history_messages, split_title
 
 
 def tool_call_from(item: ToolCallItem) -> ToolCall:
@@ -98,6 +104,29 @@ class DivanaService:
         title, body = split_title(markdown)
         note = self.context.notes.save(title, body, ["conversation", "summary"])
         return Summary(markdown=markdown, note=note)
+
+    # ---------------------------------------------------------- 会话
+
+    def list_sessions(self) -> list[SessionInfo]:
+        """所有会话，最近用过的在前。"""
+        return list_sessions()
+
+    async def history(self, limit: int = HISTORY_LIMIT) -> list[tuple[str, str]]:
+        """当前会话的历史对话（只有人和助手说的话）。"""
+        items = await self.session.get_items(limit=limit)
+        return history_messages(items)
+
+    def switch_session(self, session_id: str) -> None:
+        """换一段对话：关掉旧的、开新的。历史由各自的 session 管。
+
+        传一个从没用过的 id 就是开新会话——SDK 会在这条会话第一次写入时建记录。
+        """
+        session_id = session_id.strip()
+        if not session_id or session_id == self.session_id:
+            return
+        self.session.close()
+        self.session = open_session(session_id)
+        self.session_id = session_id
 
     # ---------------------------------------------------------- 只看不写
 

@@ -33,6 +33,7 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
 /* ---------------------------------------------------------------- 聊天 */
 
 let busy = false;
+let currentSession = "";
 
 function clearEmpty() {
   const e = document.querySelector(".empty");
@@ -44,13 +45,21 @@ function scrollDown() {
   box.scrollTop = box.scrollHeight;
 }
 
-function addUser(text) {
+function addStaticMessage(role, text) {
   clearEmpty();
   const el = document.createElement("div");
-  el.className = "msg user";
-  el.innerHTML = `<div class="bubble">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
+  el.className = `msg ${role}`;
+  const html =
+    role === "user"
+      ? escapeHtml(text).replace(/\n/g, "<br>")
+      : renderMarkdown(text);
+  el.innerHTML = `<div class="bubble">${html}</div>`;
   $("messages").appendChild(el);
   scrollDown();
+}
+
+function addUser(text) {
+  addStaticMessage("user", text);
 }
 
 function addAssistant() {
@@ -163,6 +172,85 @@ async function sendCurrent() {
     busy = false;
     $("send").disabled = false;
     input.focus();
+    loadSessions();   // 刷新时间戳和排序
+  }
+}
+
+/* ---------------------------------------------------------------- 会话 */
+
+async function loadSessions() {
+  try {
+    const data = await api("/api/sessions");
+    currentSession = data.current;
+    const box = $("session-list");
+
+    if (!data.sessions.length) {
+      box.innerHTML = '<div class="hint">还没有对话</div>';
+      return;
+    }
+    box.innerHTML = data.sessions.map((s) => `
+      <div class="session-item ${s.id === data.current ? "active" : ""}"
+           data-id="${escapeHtml(s.id)}">
+        <div class="t">${escapeHtml(s.title)}</div>
+        <div class="m">${escapeHtml(s.updated_at)} · ${s.message_count} 条</div>
+      </div>`).join("");
+
+    box.querySelectorAll(".session-item").forEach((el) => {
+      el.addEventListener("click", () => switchSession(el.dataset.id));
+    });
+  } catch (err) {
+    $("session-list").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+async function loadHistory() {
+  const box = $("messages");
+  try {
+    const data = await api("/api/history");
+    box.innerHTML = "";
+    if (!data.messages.length) {
+      box.innerHTML =
+        '<div class="empty"><div class="big">你好，我是 Divana</div>' +
+        "<div>我记得你的学习目标，也知道你正在学什么。</div></div>";
+      return;
+    }
+    for (const message of data.messages) {
+      addStaticMessage(message.role, message.text);
+    }
+  } catch (err) {
+    box.innerHTML = `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+async function switchSession(id) {
+  if (!id || id === currentSession || busy) return;
+  try {
+    await api("/api/sessions/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: id }),
+    });
+    currentSession = id;
+    await loadHistory();
+    loadSessions();
+  } catch (err) {
+    $("messages").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+async function newSession() {
+  if (busy) return;
+  try {
+    const data = await api("/api/sessions/new", { method: "POST" });
+    currentSession = data.id;
+    await loadHistory();
+    loadSessions();
+    input.focus();
+  } catch (err) {
+    $("messages").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
   }
 }
 
@@ -357,6 +445,7 @@ $("quick").querySelectorAll("button").forEach((btn) => {
 });
 
 $("btn-summary").addEventListener("click", makeSummary);
+$("btn-new-session").addEventListener("click", newSession);
 
 $("note-search").addEventListener("input", (e) => {
   notesState.query = e.target.value.trim();
@@ -366,6 +455,8 @@ $("note-search").addEventListener("input", (e) => {
 /* ---------------------------------------------------------------- 启动 */
 
 loadState();
+loadSessions();
+loadHistory();
 loadNotes();
 loadPlan();
 input.focus();

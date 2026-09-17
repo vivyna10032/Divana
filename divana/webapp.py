@@ -32,6 +32,7 @@ from starlette.staticfiles import StaticFiles
 from .config import Settings, setup_agents_sdk
 from .contracts import AskEvent, SummarizeError, TextDelta, ToolCalled
 from .notes import NoteError
+from .session import new_session_id
 
 if TYPE_CHECKING:  # 只为类型标注：运行时不 import，这样这个模块能脱离 agent 栈单独测
     from .service import DivanaService
@@ -223,6 +224,51 @@ async def plan(request: Request) -> Response:
     )
 
 
+async def sessions(request: Request) -> Response:
+    """会话列表。current 标出当前正在聊的那个。"""
+    service = service_of(request)
+    return JSONResponse(
+        {
+            "current": service.session_id,
+            "sessions": [
+                {
+                    "id": info.session_id,
+                    "title": info.title,
+                    "updated_at": info.updated_at,
+                    "message_count": info.message_count,
+                }
+                for info in service.list_sessions()
+            ],
+        }
+    )
+
+
+async def new_session(request: Request) -> Response:
+    """开一段新对话。"""
+    service = service_of(request)
+    session_id = new_session_id()
+    service.switch_session(session_id)
+    return JSONResponse({"id": session_id})
+
+
+async def switch_session(request: Request) -> Response:
+    payload = await request.json()
+    session_id = str(payload.get("session_id", "")).strip()
+    if not session_id:
+        return JSONResponse({"error": "缺少 session_id"}, status_code=400)
+    service_of(request).switch_session(session_id)
+    return JSONResponse({"id": session_id})
+
+
+async def history(request: Request) -> Response:
+    """当前会话的对话历史，给界面渲染。"""
+    service = service_of(request)
+    messages = await service.history()
+    return JSONResponse(
+        {"messages": [{"role": role, "text": text} for role, text in messages]}
+    )
+
+
 async def summary(request: Request) -> Response:
     service = service_of(request)
     try:
@@ -246,6 +292,10 @@ def create_app(service: "DivanaService") -> Starlette:
             Route("/api/notes", notes),
             Route("/api/note", note),
             Route("/api/plan", plan),
+            Route("/api/sessions", sessions),
+            Route("/api/sessions/new", new_session, methods=["POST"]),
+            Route("/api/sessions/switch", switch_session, methods=["POST"]),
+            Route("/api/history", history),
             Route("/api/ask", ask, methods=["POST"]),
             Route("/api/summary", summary, methods=["POST"]),
         ]
