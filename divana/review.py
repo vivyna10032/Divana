@@ -20,6 +20,7 @@ from .config import Settings
 from .markdown_store import demote_level2_headings
 from .prompt import format_today, load_reviewer
 from .session import RecentMessage, recent_messages
+from .state import LAST_ERROR, LAST_REVIEW, update_state
 
 # 一份素材最多多少字。一周的对话很容易上万字，得压。
 MAX_MATERIAL_CHARS = 12000
@@ -107,7 +108,12 @@ def compose_material(
 
 
 async def run_review(
-    settings: Settings, service, *, days: int = DEFAULT_DAYS
+    settings: Settings,
+    service,
+    *,
+    days: int = DEFAULT_DAYS,
+    state_path: Path | None = None,
+    today: date | None = None,
 ) -> ReviewResult:
     """跑一次复盘，并把结果追加到计划的"复盘记录"里。"""
     # 先做便宜的检查，再去装 agent 栈：没有素材时连导入都不必要
@@ -148,7 +154,20 @@ async def run_review(
         raise ReviewError("复盘者没有返回内容")
 
     store.append_to_section("复盘记录", markdown)
+    # 成功的复盘在这里记账：定时任务靠它判断"该不该跑"，
+    # 手动跑和自动跑共用这一处，就不会出现"刚手动复盘完，定时又跑一遍"。
+    mark_review_done(today=today, state_path=state_path)
     return ReviewResult(markdown=markdown, days=days, message_count=len(recent))
+
+
+def mark_review_done(*, today: date | None = None, state_path: Path | None = None) -> None:
+    """记下"这次复盘成功了"。定时任务靠这个日期判断下次什么时候该跑。
+
+    单独抽出来是为了能测：run_review 要调模型、测不了，
+    而"记账"这件事本身很值得盯住（记错一次就是一周不再跑）。
+    """
+    moment = today or date.today()
+    update_state(state_path, **{LAST_REVIEW: moment.isoformat(), LAST_ERROR: ""})
 
 
 def main() -> None:
@@ -157,21 +176,41 @@ def main() -> None:
     定时任务以后调用的也是 run_review，所以这条命令和自动跑走的是同一条路。
     出问题时可以先手动跑一遍，把"逻辑问题"和"调度问题"分开。
     """
+    import argparse
     import asyncio
 
     from dotenv import load_dotenv
 
     from .config import setup_agents_sdk
+    from .scheduler import is_due
     from .service import DivanaService
 
     load_dotenv()
+
+    parser = argparse.ArgumentParser(
+        prog="python -m divana.review", description="跑一次复盘"
+    )
+    parser.add_argument(
+        "--days", type=int, default=DEFAULT_DAYS, help=f"回看几天，默认 {DEFAULT_DAYS}"
+    )
+    parser.add_argument(
+        "--if-due",
+        action="store_true",
+        help="只在超过一周没复盘时才跑（给系统定时任务用，重复执行是安全的）",
+    )
+    args = parser.parse_args()
+
     settings = Settings.from_env()
     setup_agents_sdk(settings)
+
+    if args.if_due and not is_due(interval_days=args.days):
+        print(f"上次复盘还不到 {args.days} 天，跳过")
+        return
 
     service = DivanaService(settings)
     try:
         try:
-            result = asyncio.run(run_review(settings, service))
+            result = asyncio.run(run_review(settings, service, days=args.days))
         except ReviewError as exc:
             print(f"跳过：{exc}")
             return

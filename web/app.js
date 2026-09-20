@@ -337,11 +337,33 @@ async function loadPlan() {
       ? `已完成 ${plan.done} / ${plan.total}（${plan.percent}%）`
       : "路线图里还没有可勾的里程碑";
 
+    renderReviewStatus(plan.review);
     renderStages(plan.stages);
   } catch (err) {
     $("plan-stages").innerHTML =
       `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
   }
+}
+
+function renderReviewStatus(review) {
+  const box = $("retro-status");
+  if (!review) {
+    box.innerHTML = "";
+    return;
+  }
+
+  const when = review.last
+    ? `上次复盘：${review.last}（${review.days_since} 天前）`
+    : "还没有复盘过";
+  const next = review.due
+    ? "下次自动复盘：服务下次打开时"
+    : `下次自动复盘：${review.due_in} 天后`;
+
+  let html = `${escapeHtml(when)}　·　${escapeHtml(next)}`;
+  if (review.last_error) {
+    html += `<div class="error">上次自动复盘失败：${escapeHtml(review.last_error)}</div>`;
+  }
+  box.innerHTML = html;
 }
 
 async function makeReview() {
@@ -352,6 +374,7 @@ async function makeReview() {
   try {
     const data = await api("/api/review", { method: "POST" });
     $("plan-retro").innerHTML = renderMarkdown(data.markdown);
+    loadPlan();   // 复盘时间变了，状态那行也要跟着更新
   } catch (err) {
     $("plan-retro").innerHTML =
       `<div class="error">${escapeHtml(err.message || String(err))}</div>`;

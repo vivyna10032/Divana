@@ -256,7 +256,8 @@ class WebAppTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.service = _FakeService()
         cls.port = _free_port()
-        app = create_app(cls.service)
+        # 不起后台定时任务：那会真读数据库、真写状态文件
+        app = create_app(cls.service, start_scheduler=False)
         config = uvicorn.Config(
             app, host="127.0.0.1", port=cls.port, log_level="error"
         )

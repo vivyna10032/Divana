@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,7 @@ from .config import Settings, setup_agents_sdk
 from .contracts import AskEvent, SummarizeError, TextDelta, ToolCalled
 from .notes import NoteError
 from .review import DEFAULT_DAYS, ReviewError, run_review
+from .scheduler import review_status, scheduler_loop
 from .session import new_session_id
 
 if TYPE_CHECKING:  # 只为类型标注：运行时不 import，这样这个模块能脱离 agent 栈单独测
@@ -212,6 +214,8 @@ async def plan(request: Request) -> Response:
             "done": progress.done,
             "total": progress.total,
             "percent": progress.percent,
+            # 复盘的状态：上次什么时候、下次什么时候、上次失败了吗
+            "review": review_status(),
             "stages": [
                 {
                     "name": stage.name,
@@ -334,8 +338,26 @@ async def summary(request: Request) -> Response:
     return JSONResponse({"markdown": result.markdown, "path": str(result.note.path)})
 
 
-def create_app(service: "DivanaService") -> Starlette:
-    """把 service 挂到 app 上。单独抽成函数是为了能用假 service 测这一层。"""
+def create_app(
+    service: "DivanaService", *, start_scheduler: bool = True
+) -> Starlette:
+    """把 service 挂到 app 上。单独抽成函数是为了能用假 service 测这一层。
+
+    `start_scheduler=False` 给测试用：后台任务会真读数据库、真写状态文件，
+    测试里不该发生这些。
+    """
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        task = asyncio.create_task(scheduler_loop(service)) if start_scheduler else None
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
     app = Starlette(
         routes=[
             Route("/", index),
@@ -352,7 +374,8 @@ def create_app(service: "DivanaService") -> Starlette:
             Route("/api/history", history),
             Route("/api/ask", ask, methods=["POST"]),
             Route("/api/summary", summary, methods=["POST"]),
-        ]
+        ],
+        lifespan=lifespan,
     )
     app.state.service = service
     return app

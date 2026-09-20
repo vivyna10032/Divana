@@ -5,10 +5,18 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
-from divana.review import MAX_MATERIAL_CHARS, compose_material, render_recent
+from divana.review import (
+    MAX_MATERIAL_CHARS,
+    compose_material,
+    mark_review_done,
+    render_recent,
+)
 from divana.session import RecentMessage
+from divana.state import LAST_ERROR, LAST_REVIEW, read_state, write_state
 
 
 def msg(at: str, role: str, text: str, session: str = "default") -> RecentMessage:
@@ -86,6 +94,28 @@ class ComposeMaterialTest(unittest.TestCase):
         # 对话摘录最长，放最后；前面的计划/画像才是"框架"
         text = self.material()
         self.assertLess(text.index("学习者画像"), text.index("最近的对话"))
+
+
+class MarkReviewDoneTest(unittest.TestCase):
+    """复盘成功后的记账。记错一次，就要再等一周才会重跑。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state = Path(self._tmp.name) / "state.json"
+
+    def test_records_the_date(self) -> None:
+        from datetime import date
+
+        mark_review_done(today=date(2026, 9, 20), state_path=self.state)
+        self.assertEqual(read_state(self.state)[LAST_REVIEW], "2026-09-20")
+
+    def test_clears_an_earlier_error(self) -> None:
+        from datetime import date
+
+        write_state({LAST_ERROR: "上次失败了"}, self.state)
+        mark_review_done(today=date(2026, 9, 20), state_path=self.state)
+        self.assertEqual(read_state(self.state)[LAST_ERROR], "")
 
 
 if __name__ == "__main__":
