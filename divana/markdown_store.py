@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 
 from .storage import atomic_write
@@ -87,6 +88,18 @@ class SectionedMarkdown:
             if name == section:
                 return "\n".join(lines[start + 1 : end]).strip()
         return ""
+
+    def updated_at(self) -> str:
+        """文件最后修改时间（本地时区）。没建过就返回空串。
+
+        `stat().st_mtime` 是 Unix 时间戳，`fromtimestamp` 会按本地时区还原
+        ——和 session 那边不一样（那边的字符串本身是 UTC，得手动转）。
+        """
+        try:
+            stamp = self.path.stat().st_mtime
+        except OSError:
+            return ""
+        return datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M")
 
     def write_section(self, section: str, content: str) -> None:
         """把某一节的正文整体换掉，其余部分原样保留。

@@ -123,6 +123,7 @@ class _FakeStore:
 
     def __init__(self, label: str) -> None:
         self.label = label
+        self.path = Path("vault") / f"{label}.md"
 
     def read_section(self, section: str) -> str:
         return f"{self.label}的「{section}」"
@@ -138,6 +139,9 @@ class _FakeStore:
             done=1,
             total=2,
         )
+
+    def updated_at(self) -> str:
+        return "2026-09-20 10:23"
 
 
 class _FakeService:
@@ -344,6 +348,20 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(data["stages"][0]["name"], "阶段一")
         self.assertTrue(data["stages"][0]["milestones"][0]["done"])
         self.assertFalse(data["stages"][0]["milestones"][1]["done"])
+
+    def test_profile_returns_all_sections(self) -> None:
+        with self.get("/api/profile") as response:
+            data = json.loads(response.read())
+
+        self.assertEqual(data["goal"], "画像的「目标」")
+        self.assertEqual(data["level"], "画像的「当前水平」")
+        self.assertEqual(data["known"], "画像的「已掌握」")
+        self.assertEqual(data["weak"], "画像的「薄弱点」")
+        self.assertEqual(data["habits"], "画像的「学习习惯」")
+        self.assertEqual(data["updated_at"], "2026-09-20 10:23")
+        self.assertEqual(data["note_count"], 2)
+        self.assertEqual(data["percent"], 50)
+        self.assertTrue(data["path"].endswith(".md"))
 
     def test_sessions_list_marks_the_current_one(self) -> None:
         with self.get("/api/sessions") as response:

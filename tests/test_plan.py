@@ -145,6 +145,14 @@ class PlanStoreTest(unittest.TestCase):
         leftovers = sorted(p.name for p in self.path.parent.iterdir())
         self.assertEqual(leftovers, ["plan.md"])
 
+    def test_updated_at_is_empty_before_the_file_exists(self) -> None:
+        self.assertEqual(self.store().updated_at(), "")
+
+    def test_updated_at_is_a_local_timestamp(self) -> None:
+        store = self.store()
+        store.ensure_exists()
+        self.assertRegex(store.updated_at(), r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+
     def test_progress_counts_milestones(self) -> None:
         store = self.store()
         store.write_section("路线图", "### 阶段一\n- [x] 已做完的\n- [ ] 还没做的")

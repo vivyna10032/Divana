@@ -19,6 +19,7 @@
     <button class="nav-item active" data-view="chat" type="button">对话</button>
     <button class="nav-item" data-view="plan" type="button">学习计划</button>
     <button class="nav-item" data-view="notes" type="button">知识库</button>
+    <button class="nav-item" data-view="profile" type="button">学习画像</button>
   </nav>
 
   <!-- ------------------------------------------------ 对话 -->
@@ -99,6 +100,45 @@
       <section class="panel">
         <h2>复盘记录</h2>
         <div class="body" id="plan-retro">读取中…</div>
+      </section>
+    </aside>
+  </section>
+
+  <!-- ------------------------------------------------ 学习画像 -->
+  <section class="view hidden" id="view-profile">
+    <main class="profile-main">
+      <section class="panel">
+        <h2>学习目标</h2>
+        <div class="body" id="pf-goal">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>当前水平</h2>
+        <div class="body" id="pf-level">读取中…</div>
+      </section>
+      <div class="profile-grid">
+        <section class="panel">
+          <h2>已掌握</h2>
+          <div class="body" id="pf-known">读取中…</div>
+        </section>
+        <section class="panel">
+          <h2>薄弱点</h2>
+          <div class="body" id="pf-weak">读取中…</div>
+        </section>
+        <section class="panel">
+          <h2>学习习惯</h2>
+          <div class="body" id="pf-habits">读取中…</div>
+        </section>
+      </div>
+    </main>
+    <aside class="side">
+      <section class="panel">
+        <h2>里程碑进度</h2>
+        <div class="progress"><div class="bar"><span id="pf-bar"></span></div></div>
+        <div class="body pct" id="pf-pct">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>这份画像是怎么来的</h2>
+        <div class="body" id="pf-meta">读取中…</div>
       </section>
     </aside>
   </section>

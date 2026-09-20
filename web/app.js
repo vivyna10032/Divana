@@ -24,6 +24,7 @@ function showView(name) {
   });
   if (name === "notes") loadNotes();   // 每次切过来都刷新，免得看到旧的
   if (name === "plan") loadPlan();
+  if (name === "profile") loadProfile();
 }
 
 document.querySelectorAll(".nav-item").forEach((btn) => {
@@ -293,6 +294,35 @@ async function makeSummary() {
   }
 }
 
+/* ---------------------------------------------------------------- 学习画像 */
+
+async function loadProfile() {
+  try {
+    const p = await api("/api/profile");
+    $("pf-goal").innerHTML = renderMarkdown(p.goal || "（还没记录）");
+    $("pf-level").innerHTML = renderMarkdown(p.level || "（还没记录）");
+    $("pf-known").innerHTML = renderMarkdown(p.known || "（还没记录）");
+    $("pf-weak").innerHTML = renderMarkdown(p.weak || "（还没记录）");
+    $("pf-habits").innerHTML = renderMarkdown(p.habits || "（还没记录）");
+
+    $("pf-bar").style.width = p.percent + "%";
+    $("pf-pct").textContent = p.total
+      ? `已完成 ${p.done} / ${p.total} 个里程碑（${p.percent}%）`
+      : "路线图里还没有可勾的里程碑";
+
+    $("pf-meta").innerHTML = `
+      <p>文件：<code>${escapeHtml(p.path)}</code></p>
+      <p>最后更新：${escapeHtml(p.updated_at || "未知")}</p>
+      <p>手上的笔记：${p.note_count} 篇</p>
+      <p class="muted">她在聊天里了解到关于你的信息时，会自己更新这份画像。
+      你也可以直接编辑那个文件。</p>
+      <p class="muted">注意：画像是在服务启动时读进去的，你手改完要<b>重启服务</b>她才会读到。</p>`;
+  } catch (err) {
+    $("pf-goal").innerHTML =
+      `<span class="error">读取失败：${escapeHtml(err.message || String(err))}</span>`;
+  }
+}
+
 /* ---------------------------------------------------------------- 学习计划 */
 
 async function loadPlan() {
@@ -459,4 +489,5 @@ loadSessions();
 loadHistory();
 loadNotes();
 loadPlan();
+loadProfile();
 input.focus();

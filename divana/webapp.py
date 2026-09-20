@@ -224,6 +224,29 @@ async def plan(request: Request) -> Response:
     )
 
 
+async def profile(request: Request) -> Response:
+    """画像页要的全部内容：五节正文 + 文件信息 + 一点交叉数据。"""
+    service = service_of(request)
+    store = service.context.profile
+    progress = service.plan_progress()
+
+    return JSONResponse(
+        {
+            "goal": store.read_section("目标"),
+            "level": store.read_section("当前水平"),
+            "known": store.read_section("已掌握"),
+            "weak": store.read_section("薄弱点"),
+            "habits": store.read_section("学习习惯"),
+            "path": str(store.path),
+            "updated_at": store.updated_at(),
+            "note_count": len(service.list_notes()),
+            "done": progress.done,
+            "total": progress.total,
+            "percent": progress.percent,
+        }
+    )
+
+
 async def sessions(request: Request) -> Response:
     """会话列表。current 标出当前正在聊的那个。"""
     service = service_of(request)
@@ -292,6 +315,7 @@ def create_app(service: "DivanaService") -> Starlette:
             Route("/api/notes", notes),
             Route("/api/note", note),
             Route("/api/plan", plan),
+            Route("/api/profile", profile),
             Route("/api/sessions", sessions),
             Route("/api/sessions/new", new_session, methods=["POST"]),
             Route("/api/sessions/switch", switch_session, methods=["POST"]),

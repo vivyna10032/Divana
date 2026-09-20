@@ -203,6 +203,20 @@ button.ghost { background: #eef1ee; color: var(--text); font-weight: 500; }
 .hint { color: var(--muted); font-size: 13.5px; padding: 14px; }
 
 /* ------------------------------------------------ 学习计划 */
+.profile-main { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.profile-main .body { font-size: 14px; color: #33403a; }
+.profile-main .body > :first-child { margin-top: 0; }
+.profile-main .body > :last-child { margin-bottom: 0; }
+.profile-main .body ul, .profile-main .body ol { margin: 6px 0; padding-left: 20px; }
+.profile-main .body p { margin: 7px 0; }
+#pf-meta p { margin: 5px 0; }
+#pf-meta code {
+  background: #eef1ee; padding: 1px 5px; border-radius: 4px;
+  font-size: 12px; overflow-wrap: anywhere;
+}
+.muted { color: var(--muted); font-size: 12.5px; }
+
 .plan-main { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .stage {
   background: var(--card); border: 1px solid var(--line);
