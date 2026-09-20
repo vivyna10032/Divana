@@ -289,5 +289,66 @@ class ParseMilestonesTest(unittest.TestCase):
         self.assertEqual(progress.total, 0)
 
 
+class BlocksTest(unittest.TestCase):
+    """复盘记录里的一次复盘、路线图里的一个阶段，都是"节里的小节"。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / "vault" / "plan.md"
+        self.store = PlanStore(self.path)
+
+    def test_lists_blocks_with_their_body(self) -> None:
+        self.store.write_section("复盘记录", "### 第一次\n\n甲\n\n### 第二次\n\n乙")
+        blocks = self.store.list_blocks("复盘记录")
+
+        self.assertEqual([name for name, _ in blocks], ["第一次", "第二次"])
+        self.assertEqual(blocks[0][1], "甲")
+
+    def test_remove_returns_the_removed_text(self) -> None:
+        self.store.write_section("复盘记录", "### 第一次\n\n甲\n\n### 第二次\n\n乙")
+        removed = self.store.remove_block("复盘记录", "第一次")
+
+        self.assertIn("甲", removed)
+        self.assertIn("第一次", removed)
+        self.assertNotIn("第一次", self.store.read_section("复盘记录"))
+        self.assertIn("第二次", self.store.read_section("复盘记录"))
+
+    def test_remove_keeps_other_sections(self) -> None:
+        self.store.write_section("下一步", "- [ ] 别动我")
+        self.store.write_section("复盘记录", "### A\n\n甲")
+
+        self.store.remove_block("复盘记录", "A")
+        self.assertEqual(self.store.read_section("下一步"), "- [ ] 别动我")
+
+    def test_deeper_headings_belong_to_the_block(self) -> None:
+        """块里的 #### 是内容，不是新块——删的时候要跟着一起删。"""
+        self.store.write_section(
+            "复盘记录", "### A\n\n#### 细节\n\n内容\n\n### B\n\n乙"
+        )
+        self.assertEqual([n for n, _ in self.store.list_blocks("复盘记录")], ["A", "B"])
+
+        removed = self.store.remove_block("复盘记录", "A")
+        self.assertIn("细节", removed)
+        self.assertIn("B", self.store.read_section("复盘记录"))
+
+    def test_removes_the_first_of_same_name(self) -> None:
+        self.store.write_section("复盘记录", "### 同名\n\n第一段\n\n### 同名\n\n第二段")
+        removed = self.store.remove_block("复盘记录", "同名")
+
+        self.assertIn("第一段", removed)
+        self.assertIn("第二段", self.store.read_section("复盘记录"))
+
+    def test_unknown_block_raises(self) -> None:
+        self.store.write_section("复盘记录", "### A\n\n甲")
+        with self.assertRaises(PlanError):
+            self.store.remove_block("复盘记录", "不存在")
+
+    def test_no_leftover_blank_lines_after_removal(self) -> None:
+        self.store.write_section("复盘记录", "### A\n\n甲\n\n### B\n\n乙")
+        self.store.remove_block("复盘记录", "A")
+        self.assertNotIn("\n\n\n", self.store.read())
+
+
 if __name__ == "__main__":
     unittest.main()

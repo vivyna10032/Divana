@@ -21,6 +21,8 @@ from .storage import atomic_write
 _HEADING = re.compile(r"^##\s+(?P<name>\S.*?)\s*$")
 # 正好两个 # 的标题（### 不算）
 _LEVEL2_HEADING = re.compile(r"^##(?!#)\s*", re.MULTILINE)
+# 小节标题（三级到六级）——"节里的小节"，比如复盘记录里的一次复盘
+_BLOCK_HEADING = re.compile(r"^(?P<hashes>#{3,6})\s+(?P<name>\S.*?)\s*$")
 # 模板里的占位文字，形如"（还没记录。）"
 _PLACEHOLDER = re.compile(r"^（[^（）]*）$")
 
@@ -56,6 +58,32 @@ def iter_sections(lines: list[str]) -> Iterator[tuple[str, int, int]]:
     for position, (start, name) in enumerate(headings):
         end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
         yield name, start, end
+
+
+def _iter_blocks(lines: list[str], start: int, end: int) -> Iterator[tuple[str, int, int]]:
+    """在一个节的范围内按三级标题切出小节，产出 (标题, 起始行, 结束行)。
+
+    小节在"下一个同级或更高级标题"处结束；块里更深的标题（比如 ####）算内容。
+    """
+    headings: list[tuple[int, str, int]] = []
+    for index in range(start, end):
+        match = _BLOCK_HEADING.match(lines[index])
+        if match:
+            headings.append((index, match.group("name"), len(match.group("hashes"))))
+
+    if not headings:
+        return
+    # 只认最外层的小节：`### 一次复盘` 下面的 `#### 细节` 是内容，不是另一个小节
+    shallowest = min(level for _, _, level in headings)
+    headings = [item for item in headings if item[2] == shallowest]
+
+    for position, (line_no, name, level) in enumerate(headings):
+        stop = end
+        for next_line, _next_name, next_level in headings[position + 1 :]:
+            if next_level <= level:
+                stop = next_line
+                break
+        yield name, line_no, stop
 
 
 class SectionedMarkdown:
@@ -192,5 +220,56 @@ class SectionedMarkdown:
             lines[insert_at:insert_at] = ["", *text.splitlines()]
             atomic_write(self.path, "\n".join(lines) + "\n")
             return
+
+        raise self.error_cls(f"文件里没有「{section}」这一节")
+
+    def list_blocks(self, section: str) -> list[tuple[str, str]]:
+        """列出某一节里的小节，返回 [(标题, 正文)]。
+
+        复盘记录里的每一次复盘、路线图里的每一个阶段，都是这种小节。
+        """
+        lines = self.read().splitlines()
+        for name, start, end in iter_sections(lines):
+            if name != section:
+                continue
+            blocks: list[tuple[str, str]] = []
+            for title, body_start, body_end in _iter_blocks(lines, start + 1, end):
+                # 跳过标题行本身：这里要的是"正文"
+                blocks.append((title, "\n".join(lines[body_start + 1 : body_end]).strip()))
+            return blocks
+        return []
+
+    def remove_block(self, section: str, heading: str) -> str:
+        """从某一节里删掉一个小节，返回被删掉的原文（调用方负责存进回收站）。
+
+        同名的小节删**第一个**——名字是模型起的，不保证唯一，所以界面上
+        也不该依赖名字来定位"第几个"。
+        """
+        if section not in self.sections:
+            raise self.error_cls(
+                f"「{section}」不是可写的章节，只能是：{'、'.join(self.sections)}"
+            )
+
+        self.ensure_exists()
+        lines = self.read().splitlines()
+        for name, start, end in iter_sections(lines):
+            if name != section:
+                continue
+            for title, block_start, block_end in _iter_blocks(lines, start + 1, end):
+                if title != heading:
+                    continue
+                removed = "\n".join(lines[block_start:block_end]).strip()
+                del lines[block_start:block_end]
+                # 收掉接缝处多出来的空行
+                while (
+                    block_start < len(lines)
+                    and block_start > 0
+                    and not lines[block_start].strip()
+                    and not lines[block_start - 1].strip()
+                ):
+                    del lines[block_start]
+                atomic_write(self.path, "\n".join(lines) + "\n")
+                return removed
+            raise self.error_cls(f"「{section}」里没有「{heading}」这一小节")
 
         raise self.error_cls(f"文件里没有「{section}」这一节")

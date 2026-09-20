@@ -17,9 +17,11 @@ from pathlib import Path
 
 from divana.session import (
     TITLE_CHARS,
+    delete_session,
     list_sessions,
     new_session_id,
     recent_messages,
+    session_messages,
     title_from_item,
     to_local_time,
 )
@@ -196,6 +198,69 @@ class RecentMessagesTest(unittest.TestCase):
         at = recent_messages(7, db_path=self.db, now=self.now)[0].at
         back = datetime.strptime(at, "%Y-%m-%d %H:%M").astimezone(timezone.utc)
         self.assertEqual(back.strftime("%H:%M"), "04:00")
+
+
+class DeleteSessionTest(unittest.TestCase):
+    """删会话 = 先导出到回收站，再删库里的行。顺序不能反。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.db = self.root / "divana.db"
+        self.trash = self.root / "trash"
+        self.conn = sqlite3.connect(str(self.db))
+        self.conn.executescript(SCHEMA)
+        self.addCleanup(self.conn.close)
+
+    def add(self, session_id: str, data: str, *, at: str = "2026-09-19 10:00:00") -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)", (session_id,)
+        )
+        self.conn.execute(
+            "INSERT INTO agent_messages (session_id, message_data, created_at) "
+            "VALUES (?, ?, ?)",
+            (session_id, data, at),
+        )
+        self.conn.commit()
+
+    def test_exports_before_deleting(self) -> None:
+        self.add("chat-1", user_item("这段要被删"))
+        self.add("chat-1", assistant_item("好的"))
+
+        saved = delete_session("chat-1", db_path=self.db, trash_dir=self.trash)
+
+        text = saved.read_text(encoding="utf-8")
+        self.assertIn("这段要被删", text)
+        self.assertIn("好的", text)
+
+    def test_rows_are_gone_after_delete(self) -> None:
+        self.add("chat-1", user_item("走好"))
+        delete_session("chat-1", db_path=self.db, trash_dir=self.trash)
+
+        self.assertEqual(session_messages("chat-1", db_path=self.db), [])
+        self.assertEqual(list_sessions(self.db), [])
+
+    def test_other_sessions_are_untouched(self) -> None:
+        self.add("chat-1", user_item("删我"))
+        self.add("chat-2", user_item("留我"))
+
+        delete_session("chat-1", db_path=self.db, trash_dir=self.trash)
+
+        self.assertEqual([m.text for m in session_messages("chat-2", db_path=self.db)], ["留我"])
+
+    def test_empty_session_can_be_deleted(self) -> None:
+        self.conn.execute("INSERT INTO agent_sessions (session_id) VALUES ('empty')")
+        self.conn.commit()
+
+        saved = delete_session("empty", db_path=self.db, trash_dir=self.trash)
+        self.assertIn("没有对话内容", saved.read_text(encoding="utf-8"))
+
+    def test_session_messages_are_chronological(self) -> None:
+        self.add("chat-1", user_item("第一句"), at="2026-09-19 10:00:00")
+        self.add("chat-1", user_item("第二句"), at="2026-09-19 11:00:00")
+        texts = [m.text for m in session_messages("chat-1", db_path=self.db)]
+        self.assertEqual(texts, ["第一句", "第二句"])
 
 
 class NewSessionIdTest(unittest.TestCase):

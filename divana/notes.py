@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from .storage import atomic_write
+from .storage import MAX_SLUG_CHARS, atomic_write, slugify
+from .trash import trash_file
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_NOTES_DIR = PROJECT_ROOT / "vault" / "notes"
@@ -23,20 +24,6 @@ MAX_TITLE_CHARS = 80
 MAX_BODY_CHARS = 8000
 MAX_SLUG_CHARS = 40
 MAX_TAGS = 6
-
-# Windows 文件名里不能出现的字符，加上控制字符
-_FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-
-# Windows 保留设备名。叫 CON.md 的文件在某些路径下会直接建不出来
-_RESERVED = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-}
-
 
 class NoteError(ValueError):
     """笔记写入时的可预期错误。工具会把它翻译成给模型看的话。"""
@@ -60,22 +47,6 @@ class NoteInfo:
     date: str
     tags: tuple[str, ...]
     body: str
-
-
-def slugify(title: str) -> str:
-    """把标题变成能当文件名用的片段。
-
-    中文原样保留——NTFS 和 Obsidian 都没问题，硬转成拼音或哈希反而没法看。
-    只处理真正会出问题的东西：非法字符、连续空白、首尾的点号。
-    """
-    cleaned = _FORBIDDEN.sub(" ", title)
-    cleaned = re.sub(r"\s+", "-", cleaned.strip())
-    cleaned = re.sub(r"-{2,}", "-", cleaned)
-    cleaned = cleaned[:MAX_SLUG_CHARS].strip("-. ")
-
-    if not cleaned or cleaned.upper() in _RESERVED:
-        return "note"
-    return cleaned
 
 
 def normalize_tags(tags: list[str] | None) -> tuple[str, ...]:
@@ -292,6 +263,15 @@ class NoteStore:
 
         names = "、".join(info.path.name for info in partial[:5])
         raise NoteError(f"「{name}」匹配到多篇：{names}。用完整文件名再试一次。")
+
+    def delete(self, name: str, *, trash_dir: Path | None = None) -> Path:
+        """把一篇笔记移进回收站，返回它在回收站里的位置。
+
+        定位复用 read() 的匹配规则（文件名、标题、唯一片段都行），
+        但动作是**移动**不是删除——见 trash.py 开头那段说明。
+        """
+        info = self.read(name)
+        return trash_file(info.path, "note", trash_dir=trash_dir)
 
     def _load(self, path: Path) -> NoteInfo:
         """读一个文件并尽力还原它的元信息，任何字段缺失都有兜底。"""

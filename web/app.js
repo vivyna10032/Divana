@@ -9,6 +9,26 @@ async function api(path, options) {
   return data;
 }
 
+async function deleteItem(kind, id, label) {
+  const ok = confirm(
+    `删掉「${label}」？\n\n` +
+    "它会先移到回收站（data/trash/），不会真的消失——确认不要了，你自己再删那个文件。"
+  );
+  if (!ok) return false;
+
+  try {
+    await api("/api/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, id }),
+    });
+    return true;
+  } catch (err) {
+    alert(`删除失败：${err.message || err}`);
+    return false;
+  }
+}
+
 /* markdown 渲染在 web/markdown.js 里——它不碰 DOM，所以能用 node 直接测。
    那个文件在 index.html 里先于这个加载，所以 escapeHtml / renderMarkdown
    在这里是全局可用的。 */
@@ -194,10 +214,22 @@ async function loadSessions() {
            data-id="${escapeHtml(s.id)}">
         <div class="t">${escapeHtml(s.title)}</div>
         <div class="m">${escapeHtml(s.updated_at)} · ${s.message_count} 条</div>
+        <button class="del" type="button" title="删掉这段对话">×</button>
       </div>`).join("");
 
     box.querySelectorAll(".session-item").forEach((el) => {
       el.addEventListener("click", () => switchSession(el.dataset.id));
+    });
+    box.querySelectorAll(".session-item .del").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        event.stopPropagation();   // 别顺手把会话切过去
+        const item = btn.parentElement;
+        const title = item.querySelector(".t").textContent;
+        if (await deleteItem("session", item.dataset.id, title)) {
+          await loadSessions();
+          await loadHistory();   // 删的可能正是当前这段
+        }
+      });
     });
   } catch (err) {
     $("session-list").innerHTML =
@@ -338,11 +370,36 @@ async function loadPlan() {
       : "路线图里还没有可勾的里程碑";
 
     renderReviewStatus(plan.review);
+    renderReviews(plan.reviews || []);
     renderStages(plan.stages);
   } catch (err) {
     $("plan-stages").innerHTML =
       `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
   }
+}
+
+function renderReviews(reviews) {
+  const box = $("plan-retro");
+  if (!reviews.length) {
+    box.innerHTML = '<div class="muted">还没有复盘。点上面的按钮做一次。</div>';
+    return;
+  }
+
+  box.innerHTML = reviews.map((review) => `
+    <div class="entry">
+      <div class="head">
+        <div class="t">${escapeHtml(review.title)}</div>
+        <button class="del" type="button" data-title="${escapeHtml(review.title)}"
+                title="删掉这条复盘">×</button>
+      </div>
+      <div class="body">${renderMarkdown(review.body)}</div>
+    </div>`).join("");
+
+  box.querySelectorAll(".entry .del").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (await deleteItem("review", btn.dataset.title, btn.dataset.title)) loadPlan();
+    });
+  });
 }
 
 function renderReviewStatus(review) {
@@ -402,9 +459,19 @@ function renderStages(stages) {
         <div class="label">${inline(escapeHtml(m.text))}</div>
       </div>`).join("");
     return `<div class="stage ${i === current ? "current" : ""}">
-        <h3>${escapeHtml(stage.name)}${badge}</h3>${items}
+        <h3>
+          <span class="name">${escapeHtml(stage.name)}${badge}</span>
+          <button class="del" type="button" data-name="${escapeHtml(stage.name)}"
+                  title="删掉这个阶段（连同它的里程碑）">×</button>
+        </h3>${items}
       </div>`;
   }).join("");
+
+  box.querySelectorAll(".stage .del").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (await deleteItem("stage", btn.dataset.name, btn.dataset.name)) loadPlan();
+    });
+  });
 }
 
 /* ---------------------------------------------------------------- 知识库 */
@@ -478,9 +545,20 @@ async function openNote(name) {
     const body = note.body.replace(/^#\s+.*\r?\n?/, "");
     const tags = note.tags.map(escapeHtml).join("、");
     box.innerHTML = `
-      <h1>${escapeHtml(note.title)}</h1>
+      <div class="head">
+        <h1>${escapeHtml(note.title)}</h1>
+        <button class="del" id="btn-del-note" type="button" title="删掉这篇笔记">×</button>
+      </div>
       <div class="meta">${escapeHtml(note.date || "无日期")}${tags ? " · " + tags : ""} · ${escapeHtml(note.name)}</div>
       ${renderMarkdown(body)}`;
+
+    $("btn-del-note").addEventListener("click", async () => {
+      if (await deleteItem("note", note.name, note.title)) {
+        notesState.active = "";
+        box.innerHTML = '<div class="hint">从左边选一篇笔记</div>';
+        loadNotes();
+      }
+    });
   } catch (err) {
     box.innerHTML = `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
   }

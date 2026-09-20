@@ -202,6 +202,33 @@ button.ghost { background: #eef1ee; color: var(--text); font-weight: 500; }
 
 .hint { color: var(--muted); font-size: 13.5px; padding: 14px; }
 
+/* ------------------------------------------------ 删除按钮 */
+/* 删除都进回收站，所以按钮做得低调：不抢眼，但鼠标点得到 */
+.del {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 16px; line-height: 1; padding: 2px 5px; border-radius: 6px;
+}
+.del:hover { background: #fbe9e9; color: #b91c1c; }
+
+.session-item { position: relative; }
+.session-item .t { padding-right: 20px; }
+.session-item .del { position: absolute; right: 5px; top: 7px; display: none; }
+.session-item:hover .del { display: block; }
+
+.note-detail .head { display: flex; align-items: flex-start; gap: 10px; }
+.note-detail .head h1 { flex: 1; }
+
+.entry { border-top: 1px solid #f0f2f0; padding: 10px 0; }
+.entry:first-child { border-top: 0; padding-top: 0; }
+.entry .head { display: flex; align-items: baseline; gap: 8px; }
+.entry .head .t { flex: 1; font-weight: 600; font-size: 13.5px; }
+.entry .body { font-size: 13px; color: #33403a; }
+.entry .body > :first-child { margin-top: 4px; }
+.entry .body > :last-child { margin-bottom: 0; }
+
+.stage h3 { display: flex; align-items: baseline; gap: 8px; }
+.stage h3 .name { flex: 1; }
+
 /* ------------------------------------------------ 学习计划 */
 .profile-main { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

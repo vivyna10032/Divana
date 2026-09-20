@@ -32,6 +32,7 @@ from starlette.staticfiles import StaticFiles
 
 from .config import Settings, setup_agents_sdk
 from .contracts import AskEvent, SummarizeError, TextDelta, ToolCalled
+from .markdown_store import MarkdownStoreError
 from .notes import NoteError
 from .review import DEFAULT_DAYS, ReviewError, run_review
 from .scheduler import review_status, scheduler_loop
@@ -225,8 +226,46 @@ async def plan(request: Request) -> Response:
                 }
                 for stage in progress.stages
             ],
+            # 复盘记录按条给（新的在前），界面上每条都能单独删
+            "reviews": [
+                {"title": title, "body": body} for title, body in service.list_reviews()
+            ],
         }
     )
+
+
+async def delete(request: Request) -> Response:
+    """删除入口。**全都进回收站**，不是真删——见 divana/trash.py 的说明。
+
+    四种东西走同一个接口，参数是 (kind, id)：
+    session（会话）/ note（笔记）/ review（一次复盘）/ stage（一个阶段）。
+    """
+    service = service_of(request)
+    payload = await request.json()
+    kind = str(payload.get("kind", "")).strip()
+    target = str(payload.get("id", "")).strip()
+    if not kind or not target:
+        return JSONResponse({"error": "需要 kind 和 id"}, status_code=400)
+
+    try:
+        if kind == "session":
+            saved = service.delete_session(target)
+        elif kind == "note":
+            saved = service.delete_note(target)
+        elif kind == "review":
+            saved = service.delete_review(target)
+        elif kind == "stage":
+            saved = service.delete_stage(target)
+        else:
+            return JSONResponse({"error": f"不认识要删什么：{kind}"}, status_code=400)
+    except (NoteError, MarkdownStoreError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"{type(exc).__name__}: {exc}"}, status_code=500
+        )
+
+    return JSONResponse({"saved": str(saved)})
 
 
 async def profile(request: Request) -> Response:
@@ -368,6 +407,7 @@ def create_app(
             Route("/api/plan", plan),
             Route("/api/profile", profile),
             Route("/api/review", review, methods=["POST"]),
+            Route("/api/delete", delete, methods=["POST"]),
             Route("/api/sessions", sessions),
             Route("/api/sessions/new", new_session, methods=["POST"]),
             Route("/api/sessions/switch", switch_session, methods=["POST"]),

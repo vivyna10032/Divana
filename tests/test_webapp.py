@@ -24,6 +24,7 @@ import urllib.request
 from types import SimpleNamespace
 
 from divana.contracts import Reply, Summary, TextDelta, ToolCall, ToolCalled
+from divana.markdown_store import MarkdownStoreError
 from divana.notes import Note, NoteError, NoteInfo
 from divana.plan import Milestone, PlanProgress, Stage
 from divana.session import SessionInfo
@@ -224,6 +225,21 @@ class _FakeService:
     async def history(self, limit: int = 40) -> list:
         return [("user", "问一句"), ("assistant", "答一句")]
 
+    def list_reviews(self) -> list:
+        return [("2026-09-20 复盘", "这周做了不少事。")]
+
+    def delete_session(self, session_id: str) -> Path:
+        return Path("data/trash/20260920-000000-session-x.md")
+
+    def delete_note(self, name: str) -> Path:
+        raise NoteError(f"没找到「{name}」")
+
+    def delete_review(self, title: str) -> Path:
+        return Path("data/trash/20260920-000000-review-x.md")
+
+    def delete_stage(self, name: str) -> Path:
+        raise MarkdownStoreError(f"「{name}」不是可写的章节")
+
     async def ask(self, text: str, *, on_event=None) -> Reply:
         if on_event is not None:
             on_event(ToolCalled(ToolCall("search_web", '{"query": "x"}')))
@@ -365,6 +381,32 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(data["note_count"], 2)
         self.assertEqual(data["percent"], 50)
         self.assertTrue(data["path"].endswith(".md"))
+
+    def test_plan_includes_review_entries(self) -> None:
+        with self.get("/api/plan") as response:
+            data = json.loads(response.read())
+        self.assertEqual(data["reviews"], [{"title": "2026-09-20 复盘", "body": "这周做了不少事。"}])
+
+    def test_delete_reports_where_it_went(self) -> None:
+        with self.post("/api/delete", {"kind": "session", "id": "chat-1"}) as response:
+            data = json.loads(response.read())
+        self.assertIn("trash", data["saved"])  # 路径分隔符各平台不同，只认目录名
+
+    def test_delete_missing_note_is_404(self) -> None:
+        """找不到东西是 404（用户的输入问题），不是 500（我们的问题）。"""
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/delete", {"kind": "note", "id": "nope.md"})
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_delete_unknown_kind_is_400(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/delete", {"kind": "什么都能删吗", "id": "x"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_delete_without_id_is_400(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/delete", {"kind": "note"})
+        self.assertEqual(ctx.exception.code, 400)
 
     def test_sessions_list_marks_the_current_one(self) -> None:
         with self.get("/api/sessions") as response:

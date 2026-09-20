@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from agents import SQLiteSession
 
 from .transcript import message_text
+from .trash import trash_text
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -129,8 +130,16 @@ def recent_messages(
     finally:
         conn.close()
 
+    return _messages_from_rows(reversed(rows))  # 反转回时间正序
+
+
+def _messages_from_rows(rows) -> list[RecentMessage]:
+    """把 (session_id, created_at, message_data) 这些行变成消息列表。
+
+    工具调用、模型思考过程都跳过——那些是给模型看的，不是"对话"。
+    """
     messages: list[RecentMessage] = []
-    for session_id, created_at, data in reversed(rows):  # 反转回时间正序
+    for session_id, created_at, data in rows:
         try:
             item = json.loads(data)
         except (json.JSONDecodeError, TypeError):
@@ -148,6 +157,59 @@ def recent_messages(
                 )
             )
     return messages
+
+
+def session_messages(session_id: str, *, db_path: Path | None = None) -> list[RecentMessage]:
+    """某个会话里的全部对话（只要人话）。删除前导出用。"""
+    path = Path(db_path) if db_path is not None else SESSION_DB
+    if not path.exists():
+        return []
+
+    conn = sqlite3.connect(str(path))
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT session_id, created_at, message_data FROM {MESSAGES_TABLE}
+            WHERE session_id = ? ORDER BY id
+            """,
+            (session_id,),
+        ).fetchall()
+    except sqlite3.DatabaseError:
+        return []
+    finally:
+        conn.close()
+    return _messages_from_rows(rows)
+
+
+def delete_session(
+    session_id: str, *, db_path: Path | None = None, trash_dir: Path | None = None
+) -> Path:
+    """删掉一个会话，但**先把内容导出到回收站**，返回备份文件的位置。
+
+    顺序不能反：先导出、再删行。反过来的话，导出一旦失败，记录已经没了。
+    """
+    messages = session_messages(session_id, db_path=db_path)
+    text = "\n".join(
+        f"[{message.at}] {'你' if message.role == 'user' else 'Divana'}：{message.text}"
+        for message in messages
+    )
+    saved = trash_text(
+        "session", session_id, text or "（这个会话里没有对话内容）", trash_dir=trash_dir
+    )
+
+    path = Path(db_path) if db_path is not None else SESSION_DB
+    conn = sqlite3.connect(str(path))
+    try:
+        conn.execute(
+            f"DELETE FROM {MESSAGES_TABLE} WHERE session_id = ?", (session_id,)
+        )
+        conn.execute(
+            f"DELETE FROM {SESSIONS_TABLE} WHERE session_id = ?", (session_id,)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return saved
 
 
 def list_sessions(db_path: Path | None = None) -> list[SessionInfo]:

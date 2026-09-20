@@ -294,5 +294,38 @@ class NoteStoreReadTest(unittest.TestCase):
                 self.store.read(name)
 
 
+class NoteStoreDeleteTest(unittest.TestCase):
+    """删除 = 移进回收站，不是真删。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.notes_dir = self.root / "vault" / "notes"
+        self.trash = self.root / "trash"
+        self.store = NoteStore(self.notes_dir)
+        self.store.save("注意力机制", "正文甲。", ["transformer"], today=date(2026, 9, 13))
+
+    def test_delete_moves_the_file_to_trash(self) -> None:
+        original = self.notes_dir / "2026-09-13-注意力机制.md"
+        saved = self.store.delete("注意力机制", trash_dir=self.trash)
+
+        self.assertFalse(original.exists())
+        self.assertTrue(saved.exists())
+        self.assertIn("正文甲。", saved.read_text(encoding="utf-8"))
+
+    def test_delete_accepts_the_file_name_too(self) -> None:
+        saved = self.store.delete("2026-09-13-注意力机制.md", trash_dir=self.trash)
+        self.assertTrue(saved.exists())
+
+    def test_delete_unknown_note_raises(self) -> None:
+        with self.assertRaises(NoteError):
+            self.store.delete("不存在的笔记", trash_dir=self.trash)
+
+    def test_deleted_note_disappears_from_the_list(self) -> None:
+        self.store.delete("注意力机制", trash_dir=self.trash)
+        self.assertEqual(self.store.list_all(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

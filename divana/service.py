@@ -11,6 +11,8 @@ cli.py 负责读键盘和打印；这一层只管干活、返回结构化结果�
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agents import Runner, Session, ToolCallItem
 from openai.types.responses import ResponseTextDeltaEvent
 
@@ -32,10 +34,12 @@ from .session import (
     DEFAULT_SESSION_ID,
     HISTORY_LIMIT,
     SessionInfo,
+    delete_session as remove_session,
     list_sessions,
     open_session,
 )
 from .summarize import summarize_session
+from .trash import trash_text
 from .transcript import history_messages, split_title
 
 
@@ -127,6 +131,36 @@ class DivanaService:
         self.session.close()
         self.session = open_session(session_id)
         self.session_id = session_id
+
+    # ---------------------------------------------------------- 删除（都进回收站）
+
+    def delete_session(self, session_id: str) -> Path:
+        """删一个会话。删的要是当前会话，就把当前会话换到还剩下的那个。"""
+        saved = remove_session(session_id)
+        if session_id == self.session_id:
+            remaining = [info.session_id for info in self.list_sessions()]
+            target = remaining[0] if remaining else DEFAULT_SESSION_ID
+            self.session.close()
+            self.session = open_session(target)
+            self.session_id = target
+        return saved
+
+    def delete_note(self, name: str) -> Path:
+        return self.context.notes.delete(name)
+
+    def delete_review(self, title: str) -> Path:
+        """删掉复盘记录里的一次复盘。"""
+        removed = self.context.plan.remove_block("复盘记录", title)
+        return trash_text("review", title, removed)
+
+    def delete_stage(self, name: str) -> Path:
+        """删掉路线图里的一个阶段（连同它的里程碑）。"""
+        removed = self.context.plan.remove_block("路线图", name)
+        return trash_text("stage", name, removed)
+
+    def list_reviews(self) -> list[tuple[str, str]]:
+        """复盘记录里的每一条 (标题, 正文)，**新的在前**（界面想先看最近的）。"""
+        return list(reversed(self.context.plan.list_blocks("复盘记录")))
 
     # ---------------------------------------------------------- 只看不写
 
