@@ -344,6 +344,22 @@ async function loadPlan() {
   }
 }
 
+async function makeReview() {
+  const btn = $("btn-review");
+  btn.disabled = true;
+  $("plan-retro").innerHTML =
+    '<div class="thinking">正在回看最近一周…（要花一次模型调用）</div>';
+  try {
+    const data = await api("/api/review", { method: "POST" });
+    $("plan-retro").innerHTML = renderMarkdown(data.markdown);
+  } catch (err) {
+    $("plan-retro").innerHTML =
+      `<div class="error">${escapeHtml(err.message || String(err))}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function renderStages(stages) {
   const box = $("plan-stages");
   if (!stages.length) {
@@ -476,6 +492,7 @@ $("quick").querySelectorAll("button").forEach((btn) => {
 
 $("btn-summary").addEventListener("click", makeSummary);
 $("btn-new-session").addEventListener("click", newSession);
+$("btn-review").addEventListener("click", makeReview);
 
 $("note-search").addEventListener("input", (e) => {
   notesState.query = e.target.value.trim();

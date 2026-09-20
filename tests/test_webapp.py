@@ -150,6 +150,8 @@ class _FakeService:
     session_id = "test-session"
 
     def __init__(self) -> None:
+        # 复盘接口会把 settings 传给 run_review，所以假对象也得有
+        self.settings = SimpleNamespace(model="test-model")
         self.context = SimpleNamespace(
             profile=_FakeStore("画像"),
             plan=_FakeStore("计划"),
@@ -407,6 +409,18 @@ class WebAppTest(unittest.TestCase):
             data["messages"],
             [{"role": "user", "text": "问一句"}, {"role": "assistant", "text": "答一句"}],
         )
+
+    def test_review_with_no_history_is_rejected(self) -> None:
+        """days=0 表示时间窗口是空的，所以这里不会真的去调模型——
+        测的是"没有素材时给 400 而不是 500"，不是复盘本身（那要真调一次模型）。"""
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/review", {"days": 0})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_review_with_bad_days_is_rejected(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/review", {"days": "上周"})
+        self.assertEqual(ctx.exception.code, 400)
 
     def test_note_detail_without_name_is_400(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as ctx:

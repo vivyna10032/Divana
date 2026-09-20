@@ -12,6 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PERSONA_PATH = PROJECT_ROOT / "prompts" / "divana.md"
 SUMMARIZER_PATH = PROJECT_ROOT / "prompts" / "summarizer.md"
+REVIEWER_PATH = PROJECT_ROOT / "prompts" / "reviewer.md"
 
 _WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -24,6 +25,11 @@ def load_persona() -> str:
 def load_summarizer() -> str:
     """读取总结者的指令。改 prompts/summarizer.md 就能调总结的详略和结构。"""
     return SUMMARIZER_PATH.read_text(encoding="utf-8")
+
+
+def load_reviewer() -> str:
+    """读取复盘者的指令。改 prompts/reviewer.md 就能调复盘的角度。"""
+    return REVIEWER_PATH.read_text(encoding="utf-8")
 
 
 def format_today(today: date) -> str:

@@ -170,6 +170,67 @@ class PlanStoreTest(unittest.TestCase):
         progress = store.progress()
         self.assertEqual((progress.done, progress.total), (1, 2))
 
+    def test_append_replaces_the_placeholder(self) -> None:
+        store = self.store()
+        store.ensure_exists()
+        store.append_to_section("复盘记录", "## 第一次复盘\n\n内容")
+
+        text = store.read()
+        self.assertIn("## 第一次复盘", text)
+        self.assertNotIn("（还没有复盘", text)  # 占位符被顶掉了，不会永远留着
+        self.assertIn("## 现在的位置", text)  # 别的节没动
+
+    def test_append_keeps_earlier_entries(self) -> None:
+        store = self.store()
+        store.append_to_section("复盘记录", "## 第一次\n\n甲")
+        store.append_to_section("复盘记录", "## 第二次\n\n乙")
+
+        text = store.read()
+        self.assertLess(text.index("第一次"), text.index("第二次"))  # 新的在后面
+        self.assertIn("甲", text)
+        self.assertIn("乙", text)
+
+    def test_append_demotes_level2_headings_in_the_entry(self) -> None:
+        """追加内容自带 `## 标题` 时必须降级。
+
+        不降级的话，那个标题会被当成新章节，下一次追加就会插到它前面
+        ——日记顺序反了，而且看起来一切正常。这是测试抓出来的真 bug。
+        """
+        store = self.store()
+        store.append_to_section("复盘记录", "## 第一次复盘\n\n甲")
+        text = store.read()
+
+        self.assertIn("### 第一次复盘", text)
+        self.assertNotIn("\n## 第一次复盘", text)
+        self.assertIn("甲", store.read_section("复盘记录"))  # 内容还在这一节里
+
+    def test_append_does_not_touch_other_sections(self) -> None:
+        store = self.store()
+        store.write_section("下一步", "- [ ] 别动我")
+        before = store.read_section("下一步")
+
+        store.append_to_section("复盘记录", "## 复盘")
+
+        self.assertEqual(store.read_section("下一步"), before)
+
+    def test_append_handles_a_hand_emptied_section(self) -> None:
+        """有人把那一节的内容手删了，追加也不该出错。"""
+        store = self.store()
+        store.ensure_exists()
+        self.path.write_text(
+            store.read().replace("（还没有复盘。每次回顾的结论会记在这里。）", ""),
+            encoding="utf-8",
+        )
+
+        store.append_to_section("复盘记录", "## 新复盘")
+        self.assertIn("## 新复盘", store.read())
+
+    def test_append_rejects_unknown_section_and_empty_text(self) -> None:
+        with self.assertRaises(PlanError):
+            self.store().append_to_section("不存在的节", "x")
+        with self.assertRaises(PlanError):
+            self.store().append_to_section("复盘记录", "   ")
+
 
 class ParseMilestonesTest(unittest.TestCase):
     """解析器要能容错——markdown 是模型写的，格式不可能百分百稳定。"""

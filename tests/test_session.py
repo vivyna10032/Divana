@@ -19,6 +19,7 @@ from divana.session import (
     TITLE_CHARS,
     list_sessions,
     new_session_id,
+    recent_messages,
     title_from_item,
     to_local_time,
 )
@@ -129,6 +130,72 @@ class ToLocalTimeTest(unittest.TestCase):
 
     def test_garbage_is_returned_as_is(self) -> None:
         self.assertEqual(to_local_time("不是时间"), "不是时间")
+
+
+class RecentMessagesTest(unittest.TestCase):
+    """复盘素材的来源：最近几天、跨会话、只要人话。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.db = Path(self._tmp.name) / "divana.db"
+        self.conn = sqlite3.connect(str(self.db))
+        self.conn.executescript(SCHEMA)
+        self.addCleanup(self.conn.close)
+        self.now = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+
+    def add(self, session_id: str, data: str, *, at: str) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO agent_sessions (session_id) VALUES (?)",
+            (session_id,),
+        )
+        self.conn.execute(
+            "INSERT INTO agent_messages (session_id, message_data, created_at) "
+            "VALUES (?, ?, ?)",
+            (session_id, data, at),
+        )
+        self.conn.commit()
+
+    def test_missing_database(self) -> None:
+        self.assertEqual(recent_messages(7, db_path=Path(self._tmp.name) / "no.db"), [])
+
+    def test_window_filters_old_messages(self) -> None:
+        self.add("default", user_item("六天前"), at="2026-09-14 12:00:00")
+        self.add("default", user_item("八天前"), at="2026-09-12 12:00:00")
+
+        found = recent_messages(7, db_path=self.db, now=self.now)
+        self.assertEqual([m.text for m in found], ["六天前"])
+
+    def test_spans_all_sessions(self) -> None:
+        self.add("default", user_item("老会话"), at="2026-09-19 10:00:00")
+        self.add("chat-2", user_item("新会话"), at="2026-09-19 11:00:00")
+
+        found = recent_messages(7, db_path=self.db, now=self.now)
+        self.assertEqual([m.session_id for m in found], ["default", "chat-2"])
+
+    def test_keeps_only_human_talk(self) -> None:
+        self.add("default", user_item("问"), at="2026-09-19 10:00:00")
+        self.add("default", json.dumps({"type": "function_call", "name": "x"}),
+                 at="2026-09-19 10:01:00")
+        self.add("default", assistant_item("答"), at="2026-09-19 10:02:00")
+
+        self.assertEqual(
+            [(m.role, m.text) for m in recent_messages(7, db_path=self.db, now=self.now)],
+            [("user", "问"), ("assistant", "答")],
+        )
+
+    def test_limit_keeps_the_newest(self) -> None:
+        for hour in range(10):
+            self.add("default", user_item(f"第{hour}条"), at=f"2026-09-19 {hour:02d}:00:00")
+
+        found = recent_messages(7, db_path=self.db, now=self.now, limit=3)
+        self.assertEqual([m.text for m in found], ["第7条", "第8条", "第9条"])
+
+    def test_timestamps_are_local(self) -> None:
+        self.add("default", user_item("hi"), at="2026-09-19 04:00:00")
+        at = recent_messages(7, db_path=self.db, now=self.now)[0].at
+        back = datetime.strptime(at, "%Y-%m-%d %H:%M").astimezone(timezone.utc)
+        self.assertEqual(back.strftime("%H:%M"), "04:00")
 
 
 class NewSessionIdTest(unittest.TestCase):

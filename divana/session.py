@@ -15,12 +15,14 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agents import SQLiteSession
+
+from .transcript import message_text
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -54,6 +56,16 @@ class SessionInfo:
     title: str
 
 
+@dataclass(frozen=True)
+class RecentMessage:
+    """最近聊过的一句话，复盘要用。"""
+
+    session_id: str
+    at: str  # 本地时间
+    role: str  # user / assistant
+    text: str
+
+
 def to_local_time(stamp: str) -> str:
     """把数据库里的时间戳转成本地时间。
 
@@ -71,12 +83,71 @@ def title_from_item(item: object) -> str:
     """从一条记录里取个标题：只有用户说的话才配当标题。"""
     if not isinstance(item, dict) or item.get("role") != "user":
         return ""
-    from .transcript import message_text  # 复用"两种 content 形状"的处理
 
     text = " ".join(message_text(item.get("content")).split())
     if len(text) > TITLE_CHARS:
         text = text[:TITLE_CHARS] + "…"
     return text
+
+
+def recent_messages(
+    days: int = 7,
+    *,
+    db_path: Path | None = None,
+    now: datetime | None = None,
+    limit: int = 400,
+) -> list[RecentMessage]:
+    """最近几天聊过的话（跨所有会话），按时间正序。
+
+    复盘要用它。两个细节：
+
+    - 数据库里的时间戳是 UTC，所以比较的基准也要用 UTC（`datetime.now(timezone.utc)`），
+      否则"最近 7 天"会整体偏 8 小时。
+    - 条数上限是从**最新**往前取的（ORDER BY DESC 再反转），
+      一周聊了几百条时，丢掉的是最老的那些。
+    """
+    path = Path(db_path) if db_path is not None else SESSION_DB
+    if not path.exists():
+        return []
+
+    moment = now or datetime.now(timezone.utc)
+    cutoff = (moment - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = sqlite3.connect(str(path))
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT session_id, created_at, message_data FROM {MESSAGES_TABLE}
+            WHERE created_at >= ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (cutoff, limit),
+        ).fetchall()
+    except sqlite3.DatabaseError:
+        return []
+    finally:
+        conn.close()
+
+    messages: list[RecentMessage] = []
+    for session_id, created_at, data in reversed(rows):  # 反转回时间正序
+        try:
+            item = json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"}:
+            continue
+        text = message_text(item.get("content"))
+        if text:
+            messages.append(
+                RecentMessage(
+                    session_id=session_id,
+                    at=to_local_time(created_at),
+                    role=item["role"],
+                    text=text,
+                )
+            )
+    return messages
 
 
 def list_sessions(db_path: Path | None = None) -> list[SessionInfo]:

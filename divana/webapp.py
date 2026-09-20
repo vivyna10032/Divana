@@ -32,6 +32,7 @@ from starlette.staticfiles import StaticFiles
 from .config import Settings, setup_agents_sdk
 from .contracts import AskEvent, SummarizeError, TextDelta, ToolCalled
 from .notes import NoteError
+from .review import DEFAULT_DAYS, ReviewError, run_review
 from .session import new_session_id
 
 if TYPE_CHECKING:  # 只为类型标注：运行时不 import，这样这个模块能脱离 agent 栈单独测
@@ -247,6 +248,34 @@ async def profile(request: Request) -> Response:
     )
 
 
+async def review(request: Request) -> Response:
+    """手动跑一次复盘。以后定时任务调的是同一个函数，所以手动跑通了，定时只是换个触发点。"""
+    service = service_of(request)
+    payload = await request.json() if await request.body() else {}
+
+    try:
+        days = int(payload.get("days", DEFAULT_DAYS))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "days 得是整数"}, status_code=400)
+
+    try:
+        result = await run_review(service.settings, service, days=days)
+    except ReviewError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"{type(exc).__name__}: {exc}"}, status_code=500
+        )
+
+    return JSONResponse(
+        {
+            "markdown": result.markdown,
+            "days": result.days,
+            "message_count": result.message_count,
+        }
+    )
+
+
 async def sessions(request: Request) -> Response:
     """会话列表。current 标出当前正在聊的那个。"""
     service = service_of(request)
@@ -316,6 +345,7 @@ def create_app(service: "DivanaService") -> Starlette:
             Route("/api/note", note),
             Route("/api/plan", plan),
             Route("/api/profile", profile),
+            Route("/api/review", review, methods=["POST"]),
             Route("/api/sessions", sessions),
             Route("/api/sessions/new", new_session, methods=["POST"]),
             Route("/api/sessions/switch", switch_session, methods=["POST"]),
