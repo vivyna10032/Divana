@@ -32,10 +32,11 @@ from starlette.staticfiles import StaticFiles
 
 from .config import Settings, setup_agents_sdk
 from .contracts import AskEvent, SummarizeError, TextDelta, ToolCalled
+from .digest import DigestError, run_digest
 from .markdown_store import MarkdownStoreError
 from .notes import NoteError
 from .review import DEFAULT_DAYS, ReviewError, run_review
-from .scheduler import review_status, scheduler_loop
+from .scheduler import digest_status, review_status, scheduler_loop
 from .session import new_session_id
 
 if TYPE_CHECKING:  # 只为类型标注：运行时不 import，这样这个模块能脱离 agent 栈单独测
@@ -319,6 +320,47 @@ async def review(request: Request) -> Response:
     )
 
 
+async def digests(request: Request) -> Response:
+    """早报列表 + 状态。"""
+    service = service_of(request)
+    return JSONResponse(
+        {
+            "digests": [
+                {"date": info.date, "title": info.title, "name": info.path.name}
+                for info in service.list_digests()
+            ],
+            "status": digest_status(),
+        }
+    )
+
+
+async def digest(request: Request) -> Response:
+    """读一期早报的正文。"""
+    service = service_of(request)
+    name = request.query_params.get("name", "").strip()
+    if not name:
+        return JSONResponse({"error": "缺少 name"}, status_code=400)
+    try:
+        info, body = service.read_digest(name)
+    except DigestError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    return JSONResponse({"date": info.date, "title": info.title, "body": body})
+
+
+async def make_digest(request: Request) -> Response:
+    """手动出一期早报。定时任务调的是同一个函数。"""
+    service = service_of(request)
+    try:
+        result = await run_digest(service.settings, service)
+    except DigestError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"{type(exc).__name__}: {exc}"}, status_code=500
+        )
+    return JSONResponse({"markdown": result.markdown, "path": str(result.path)})
+
+
 async def sessions(request: Request) -> Response:
     """会话列表。current 标出当前正在聊的那个。"""
     service = service_of(request)
@@ -408,6 +450,9 @@ def create_app(
             Route("/api/profile", profile),
             Route("/api/review", review, methods=["POST"]),
             Route("/api/delete", delete, methods=["POST"]),
+            Route("/api/digests", digests),
+            Route("/api/digest", digest),
+            Route("/api/digest/new", make_digest, methods=["POST"]),
             Route("/api/sessions", sessions),
             Route("/api/sessions/new", new_session, methods=["POST"]),
             Route("/api/sessions/switch", switch_session, methods=["POST"]),

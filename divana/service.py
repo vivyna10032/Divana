@@ -27,6 +27,7 @@ from .contracts import (
     ToolCall,
     ToolCalled,
 )
+from .digest import DigestInfo, list_digests, read_digest
 from .notes import NoteInfo
 from .plan import PlanProgress
 from .search import SearchResult
@@ -161,6 +162,15 @@ class DivanaService:
     def list_reviews(self) -> list[tuple[str, str]]:
         """复盘记录里的每一条 (标题, 正文)，**新的在前**（界面想先看最近的）。"""
         return list(reversed(self.context.plan.list_blocks("复盘记录")))
+
+    # ---------------------------------------------------------- 早报
+
+    def list_digests(self) -> list[DigestInfo]:
+        """所有早报，新的在前。"""
+        return list_digests()
+
+    def read_digest(self, name: str) -> tuple[DigestInfo, str]:
+        return read_digest(name)
 
     # ---------------------------------------------------------- 只看不写
 

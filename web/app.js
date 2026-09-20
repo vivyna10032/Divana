@@ -45,6 +45,7 @@ function showView(name) {
   if (name === "notes") loadNotes();   // 每次切过来都刷新，免得看到旧的
   if (name === "plan") loadPlan();
   if (name === "profile") loadProfile();
+  if (name === "digest") loadDigests();
 }
 
 document.querySelectorAll(".nav-item").forEach((btn) => {
@@ -326,6 +327,84 @@ async function makeSummary() {
   }
 }
 
+/* ---------------------------------------------------------------- AI 热点 */
+
+const digestState = { active: "" };
+
+async function loadDigests() {
+  try {
+    const data = await api("/api/digests");
+    renderDigestStatus(data.status);
+
+    const box = $("digest-items");
+    if (!data.digests.length) {
+      box.innerHTML = '<div class="hint">还没有早报。点上面的按钮抓一期。</div>';
+      return;
+    }
+    box.innerHTML = data.digests.map((d) => `
+      <div class="note-card ${d.name === digestState.active ? "active" : ""}"
+           data-name="${escapeHtml(d.name)}">
+        <div class="t">${escapeHtml(d.date)}</div>
+        <div class="s">${escapeHtml(d.title)}</div>
+      </div>`).join("");
+
+    box.querySelectorAll(".note-card").forEach((el) => {
+      el.addEventListener("click", () => openDigest(el.dataset.name));
+    });
+  } catch (err) {
+    $("digest-items").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+function renderDigestStatus(status) {
+  const box = $("digest-status");
+  if (!status) {
+    box.textContent = "";
+    return;
+  }
+  const when = status.last ? `上次早报：${status.days_since} 天前` : "还没有早报";
+  const next = status.due ? "打开服务时会自动抓一期" : "今天的已经出过了";
+  let html = `${escapeHtml(when)}　·　${escapeHtml(next)}`;
+  if (status.last_error) {
+    html += `<div class="error">上次自动抓取失败：${escapeHtml(status.last_error)}</div>`;
+  }
+  box.innerHTML = html;
+}
+
+async function openDigest(name) {
+  digestState.active = name;
+  $("digest-items")
+    .querySelectorAll(".note-card")
+    .forEach((el) => el.classList.toggle("active", el.dataset.name === name));
+
+  const box = $("digest-body");
+  try {
+    const data = await api(`/api/digest?name=${encodeURIComponent(name)}`);
+    box.innerHTML = renderMarkdown(data.body);
+  } catch (err) {
+    box.innerHTML = `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+async function makeDigest() {
+  const btn = $("btn-new-digest");
+  btn.disabled = true;
+  $("digest-body").innerHTML =
+    '<div class="thinking">正在查最近的动态…（要联网，会花几次搜索加一次模型调用）</div>';
+  try {
+    const data = await api("/api/digest/new", { method: "POST" });
+    digestState.active = "";
+    $("digest-body").innerHTML = renderMarkdown(data.markdown);
+    loadDigests();
+  } catch (err) {
+    $("digest-body").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* ---------------------------------------------------------------- 学习画像 */
 
 async function loadProfile() {
@@ -594,6 +673,7 @@ $("quick").querySelectorAll("button").forEach((btn) => {
 $("btn-summary").addEventListener("click", makeSummary);
 $("btn-new-session").addEventListener("click", newSession);
 $("btn-review").addEventListener("click", makeReview);
+$("btn-new-digest").addEventListener("click", makeDigest);
 
 $("note-search").addEventListener("input", (e) => {
   notesState.query = e.target.value.trim();
@@ -608,4 +688,5 @@ loadHistory();
 loadNotes();
 loadPlan();
 loadProfile();
+loadDigests();
 input.focus();

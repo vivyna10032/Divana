@@ -20,6 +20,7 @@
     <button class="nav-item" data-view="plan" type="button">学习计划</button>
     <button class="nav-item" data-view="notes" type="button">知识库</button>
     <button class="nav-item" data-view="profile" type="button">学习画像</button>
+    <button class="nav-item" data-view="digest" type="button">AI 热点</button>
   </nav>
 
   <!-- ------------------------------------------------ 对话 -->
@@ -145,6 +146,20 @@
         <div class="body" id="pf-meta">读取中…</div>
       </section>
     </aside>
+  </section>
+
+  <!-- ------------------------------------------------ AI 热点 -->
+  <section class="view hidden" id="view-digest">
+    <div class="digest-list">
+      <div class="digest-head">
+        <button class="new-session" id="btn-new-digest" type="button">现在抓一期</button>
+        <div class="muted" id="digest-status"></div>
+      </div>
+      <div id="digest-items"><div class="hint">读取中…</div></div>
+    </div>
+    <article class="note-detail" id="digest-body">
+      <div class="hint">左边选一期早报看</div>
+    </article>
   </section>
 
   <!-- ------------------------------------------------ 知识库 -->

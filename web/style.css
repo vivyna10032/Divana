@@ -156,12 +156,16 @@ button.ghost { background: #eef1ee; color: var(--text); font-weight: 500; }
 #summary-out { margin-top: 10px; font-size: 13px; }
 
 /* ------------------------------------------------ 知识库 */
-.notes-list {
+.notes-list, .digest-list {
   width: 380px; flex: none; display: flex; flex-direction: column;
   background: var(--card); border: 1px solid var(--line);
   border-radius: 14px; overflow: hidden;
 }
 .notes-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.digest-head {
+  padding: 14px 16px; border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 8px;
+}
 .notes-head input {
   width: 100%; border: 1px solid var(--line); border-radius: 9px;
   padding: 8px 11px; font: inherit; font-size: 13.5px; background: #fcfdfc;
@@ -173,7 +177,7 @@ button.ghost { background: #eef1ee; color: var(--text); font-weight: 500; }
   border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer;
 }
 .tags button.active { background: var(--green-soft); border-color: #cfe0d5; color: #14612f; font-weight: 600; }
-#note-items { flex: 1; overflow-y: auto; padding: 8px; }
+#note-items, #digest-items { flex: 1; overflow-y: auto; padding: 8px; }
 .note-card { padding: 11px 12px; border-radius: 10px; cursor: pointer; }
 .note-card:hover { background: #f4f6f4; }
 .note-card.active { background: var(--green-soft); }

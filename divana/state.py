@@ -19,7 +19,9 @@ DATA_DIR = PROJECT_ROOT / "data"
 STATE_PATH = DATA_DIR / "state.json"
 
 LAST_REVIEW = "last_review"
+LAST_DIGEST = "last_digest"
 LAST_ERROR = "last_error"
+DIGEST_ERROR = "last_digest_error"
 
 
 def read_state(path: Path | None = None) -> dict:
@@ -48,10 +50,19 @@ def update_state(path: Path | None = None, **changes: object) -> dict:
     return state
 
 
-def last_review_date(path: Path | None = None) -> date | None:
-    """上次成功复盘的日期。没有或格式不对就返回 None。"""
-    raw = read_state(path).get(LAST_REVIEW, "")
+def _last_date(key: str, path: Path | None) -> date | None:
+    raw = read_state(path).get(key, "")
     try:
         return date.fromisoformat(str(raw))
     except ValueError:
         return None
+
+
+def last_review_date(path: Path | None = None) -> date | None:
+    """上次成功复盘的日期。没有或格式不对就返回 None。"""
+    return _last_date(LAST_REVIEW, path)
+
+
+def last_digest_date(path: Path | None = None) -> date | None:
+    """上次成功出早报的日期。"""
+    return _last_date(LAST_DIGEST, path)

@@ -19,8 +19,16 @@ from datetime import date
 from pathlib import Path
 
 from .config import Settings
+from .digest import DIGEST_INTERVAL_DAYS, DigestResult, run_digest
 from .review import ReviewResult, run_review
-from .state import LAST_ERROR, LAST_REVIEW, last_review_date, read_state, update_state
+from .state import (
+    DIGEST_ERROR,
+    LAST_ERROR,
+    last_digest_date,
+    last_review_date,
+    read_state,
+    update_state,
+)
 
 # 超过多少天没复盘就该跑了
 REVIEW_INTERVAL_DAYS = 7
@@ -37,7 +45,22 @@ def is_due(
 ) -> bool:
     """该不该复盘了。从没复盘过也算该跑（第一次打开就能看到一段回顾）。"""
     moment = today or date.today()
-    last = last_review_date(state_path)
+    return _is_due(last_review_date(state_path), interval_days, moment)
+
+
+def is_digest_due(
+    *,
+    interval_days: int = DIGEST_INTERVAL_DAYS,
+    today: date | None = None,
+    state_path: Path | None = None,
+) -> bool:
+    """该不该出早报了。和复盘同一套判定，只是间隔是 1 天。"""
+    moment = today or date.today()
+    return _is_due(last_digest_date(state_path), interval_days, moment)
+
+
+def _is_due(last: date | None, interval_days: int, moment: date) -> bool:
+    """从没跑过也算该跑——第一次打开就能看到东西。"""
     if last is None:
         return True
     return (moment - last).days >= interval_days
@@ -51,16 +74,42 @@ def review_status(
 ) -> dict:
     """给界面看的一句话状态：上次什么时候、下次什么时候、上次失败了吗。"""
     moment = today or date.today()
-    last = last_review_date(state_path)
-    state = read_state(state_path)
+    return _status(
+        last_review_date(state_path), last_error_key=LAST_ERROR, state_path=state_path,
+        interval_days=interval_days, moment=moment,
+    )
 
+
+def digest_status(
+    *,
+    interval_days: int = DIGEST_INTERVAL_DAYS,
+    today: date | None = None,
+    state_path: Path | None = None,
+) -> dict:
+    """早报的状态，字段和复盘一样（界面能复用同一段渲染代码）。"""
+    moment = today or date.today()
+    return _status(
+        last_digest_date(state_path), last_error_key=DIGEST_ERROR, state_path=state_path,
+        interval_days=interval_days, moment=moment,
+    )
+
+
+def _status(
+    last: date | None,
+    *,
+    last_error_key: str,
+    state_path: Path | None,
+    interval_days: int,
+    moment: date,
+) -> dict:
+    error = str(read_state(state_path).get(last_error_key, ""))
     if last is None:
         return {
             "last": "",
             "days_since": -1,
             "due": True,
             "due_in": 0,
-            "last_error": str(state.get(LAST_ERROR, "")),
+            "last_error": error,
         }
 
     passed = (moment - last).days
@@ -69,7 +118,7 @@ def review_status(
         "days_since": passed,
         "due": passed >= interval_days,
         "due_in": max(0, interval_days - passed),
-        "last_error": str(state.get(LAST_ERROR, "")),
+        "last_error": error,
     }
 
 
@@ -101,12 +150,40 @@ async def run_due_review(
     return result
 
 
+async def run_due_digest(
+    settings: Settings,
+    service,
+    *,
+    interval_days: int = DIGEST_INTERVAL_DAYS,
+    today: date | None = None,
+    state_path: Path | None = None,
+    digest_dir: Path | None = None,
+) -> DigestResult | None:
+    """到点就出一期早报。失败的处理和复盘一样：留痕、不抛、不记成功。"""
+    if not is_digest_due(interval_days=interval_days, today=today, state_path=state_path):
+        return None
+
+    try:
+        return await run_digest(
+            settings,
+            service,
+            today=today,
+            digest_dir=digest_dir,
+            state_path=state_path,
+        )
+    except Exception as exc:
+        update_state(state_path, **{DIGEST_ERROR: f"{type(exc).__name__}: {exc}"})
+        return None
+
+
 async def scheduler_loop(
     service,
     *,
     interval_minutes: int = CHECK_INTERVAL_MINUTES,
     interval_days: int = REVIEW_INTERVAL_DAYS,
+    digest_interval_days: int = DIGEST_INTERVAL_DAYS,
     state_path: Path | None = None,
+    digest_dir: Path | None = None,
 ) -> None:
     """后台循环：每隔一段时间看一眼该不该复盘。
 
@@ -122,6 +199,16 @@ async def scheduler_loop(
                     f"[定时复盘] 跑了最近 {result.days} 天的复盘，"
                     f"用了 {result.message_count} 条对话记录"
                 )
+
+            digest = await run_due_digest(
+                service.settings,
+                service,
+                interval_days=digest_interval_days,
+                state_path=state_path,
+                digest_dir=digest_dir,
+            )
+            if digest is not None:
+                print(f"[定时早报] 出了一期，存到 {digest.path}")
         except asyncio.CancelledError:
             raise  # 关服务时的正常取消，别吞掉
         except Exception as exc:  # 兜底：循环绝不能因为一次意外就死掉

@@ -267,3 +267,12 @@ def build_tools() -> list[Tool]:
         read_github_repo,
         read_arxiv_paper,
     ]
+
+
+def build_search_tools() -> list[Tool]:
+    """只给搜索工具。
+
+    早报那种"帮你查一圈"的任务不该顺手改你的笔记或计划——工具给多了，
+    模型总会想用一下。
+    """
+    return [search_web]

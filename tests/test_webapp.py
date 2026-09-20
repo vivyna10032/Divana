@@ -22,8 +22,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from divana.contracts import Reply, Summary, TextDelta, ToolCall, ToolCalled
+from divana.digest import DigestError, DigestInfo
 from divana.markdown_store import MarkdownStoreError
 from divana.notes import Note, NoteError, NoteInfo
 from divana.plan import Milestone, PlanProgress, Stage
@@ -228,6 +230,21 @@ class _FakeService:
     def list_reviews(self) -> list:
         return [("2026-09-20 复盘", "这周做了不少事。")]
 
+    def list_digests(self) -> list:
+        return [
+            DigestInfo(
+                date="2026-09-21",
+                title="2026-09-21 早报",
+                path=Path("vault/digest/2026-09-21.md"),
+            )
+        ]
+
+    def read_digest(self, name: str):
+        if name == "2020-01-01":
+            raise DigestError(f"没找到「{name}」这一期")
+        info = self.list_digests()[0]
+        return info, "## 2026-09-21 早报\n\n今天值得看的：agent loop 有新实现。"
+
     def delete_session(self, session_id: str) -> Path:
         return Path("data/trash/20260920-000000-session-x.md")
 
@@ -406,6 +423,51 @@ class WebAppTest(unittest.TestCase):
     def test_delete_without_id_is_400(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/delete", {"kind": "note"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_digests_list_has_status(self) -> None:
+        with self.get("/api/digests") as response:
+            data = json.loads(response.read())
+
+        self.assertEqual(data["digests"][0]["date"], "2026-09-21")
+        self.assertEqual(data["digests"][0]["title"], "2026-09-21 早报")
+        # status 的字段和复盘共用一套（界面能复用同一段渲染）
+        for key in ("last", "days_since", "due", "due_in", "last_error"):
+            self.assertIn(key, data["status"])
+
+    def test_read_one_digest(self) -> None:
+        with self.get("/api/digest?name=2026-09-21") as response:
+            data = json.loads(response.read())
+        self.assertEqual(data["date"], "2026-09-21")
+        self.assertIn("agent loop", data["body"])
+
+    def test_read_missing_digest_is_404(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/api/digest?name=2020-01-01")
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_read_digest_without_name_is_400(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/api/digest")
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_make_digest_returns_the_result(self) -> None:
+        """把 run_digest 换成假的，免得测试真的去联网搜索。"""
+        fake = SimpleNamespace(
+            markdown="## 2026-09-21 早报\n\n内容",
+            path=Path("vault/digest/2026-09-21.md"),
+        )
+        with patch("divana.webapp.run_digest", new=AsyncMock(return_value=fake)):
+            with self.post("/api/digest/new") as response:
+                data = json.loads(response.read())
+        self.assertIn("早报", data["markdown"])
+        self.assertIn("2026-09-21", data["path"])
+
+    def test_make_digest_failure_is_400(self) -> None:
+        boom = AsyncMock(side_effect=DigestError("搜不到东西"))
+        with patch("divana.webapp.run_digest", new=boom):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.post("/api/digest/new")
         self.assertEqual(ctx.exception.code, 400)
 
     def test_sessions_list_marks_the_current_one(self) -> None:

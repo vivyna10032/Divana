@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PERSONA_PATH = PROJECT_ROOT / "prompts" / "divana.md"
 SUMMARIZER_PATH = PROJECT_ROOT / "prompts" / "summarizer.md"
 REVIEWER_PATH = PROJECT_ROOT / "prompts" / "reviewer.md"
+DIGESTER_PATH = PROJECT_ROOT / "prompts" / "digester.md"
 
 _WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -30,6 +31,11 @@ def load_summarizer() -> str:
 def load_reviewer() -> str:
     """读取复盘者的指令。改 prompts/reviewer.md 就能调复盘的角度。"""
     return REVIEWER_PATH.read_text(encoding="utf-8")
+
+
+def load_digester() -> str:
+    """读取早报撰写者的指令。改 prompts/digester.md 就能调早报的口味。"""
+    return DIGESTER_PATH.read_text(encoding="utf-8")
 
 
 def format_today(today: date) -> str:

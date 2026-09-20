@@ -16,9 +16,24 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from divana.contracts import Summary
+from divana.digest import DigestResult
 from divana.review import ReviewResult
-from divana.scheduler import is_due, review_status, run_due_review
-from divana.state import LAST_ERROR, LAST_REVIEW, read_state, write_state
+from divana.scheduler import (
+    digest_status,
+    is_digest_due,
+    is_due,
+    review_status,
+    run_due_digest,
+    run_due_review,
+)
+from divana.state import (
+    DIGEST_ERROR,
+    LAST_DIGEST,
+    LAST_ERROR,
+    LAST_REVIEW,
+    read_state,
+    write_state,
+)
 
 TODAY = date(2026, 9, 20)
 
@@ -121,6 +136,90 @@ def run_due_review_sync(case: RunDueReviewTest):
             case.settings, case.service, today=TODAY, state_path=case.state
         )
     )
+
+
+class DigestDueTest(unittest.TestCase):
+    """早报的间隔是 1 天，判定逻辑和复盘共用一套。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state = Path(self._tmp.name) / "state.json"
+
+    def test_never_digested_is_due(self) -> None:
+        self.assertTrue(is_digest_due(today=TODAY, state_path=self.state))
+
+    def test_today_already_done_is_not_due(self) -> None:
+        write_state({LAST_DIGEST: "2026-09-20"}, self.state)
+        self.assertFalse(is_digest_due(today=TODAY, state_path=self.state))
+
+    def test_yesterday_is_due(self) -> None:
+        write_state({LAST_DIGEST: "2026-09-19"}, self.state)
+        self.assertTrue(is_digest_due(today=TODAY, state_path=self.state))
+
+    def test_status_counts_days(self) -> None:
+        write_state({LAST_DIGEST: "2026-09-20"}, self.state)
+        status = digest_status(today=TODAY, state_path=self.state)
+        self.assertEqual(status["last"], "2026-09-20")
+        self.assertEqual(status["days_since"], 0)
+        self.assertFalse(status["due"])
+
+    def test_review_and_digest_status_are_independent(self) -> None:
+        """两个任务的错误不能串台。"""
+        write_state({LAST_REVIEW: "2026-09-20", LAST_ERROR: "复盘的错"}, self.state)
+        write_state({DIGEST_ERROR: "早报的错", LAST_ERROR: "复盘的错"}, self.state)
+
+        self.assertEqual(digest_status(today=TODAY, state_path=self.state)["last_error"], "早报的错")
+        self.assertEqual(review_status(today=TODAY, state_path=self.state)["last_error"], "复盘的错")
+
+
+class RunDueDigestTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state = Path(self._tmp.name) / "state.json"
+        self.service = SimpleNamespace(settings=SimpleNamespace(model="test"))
+
+    def test_skips_when_today_already_done(self) -> None:
+        write_state({LAST_DIGEST: "2026-09-20"}, self.state)
+        with patch("divana.scheduler.run_digest", new=AsyncMock()) as fake:
+            result = asyncio_run(
+                run_due_digest(
+                    self.service.settings, self.service, today=TODAY, state_path=self.state
+                )
+            )
+        self.assertIsNone(result)
+        fake.assert_not_awaited()
+
+    def test_runs_when_due(self) -> None:
+        expected = DigestResult(markdown="## 早报", path=Path("vault/digest/2026-09-20.md"))
+        with patch("divana.scheduler.run_digest", new=AsyncMock(return_value=expected)):
+            got = asyncio_run(
+                run_due_digest(
+                    self.service.settings, self.service, today=TODAY, state_path=self.state
+                )
+            )
+        self.assertEqual(got, expected)
+
+    def test_failure_is_recorded_under_its_own_key(self) -> None:
+        boom = AsyncMock(side_effect=RuntimeError("搜不到"))
+        with patch("divana.scheduler.run_digest", new=boom):
+            got = asyncio_run(
+                run_due_digest(
+                    self.service.settings, self.service, today=TODAY, state_path=self.state
+                )
+            )
+
+        self.assertIsNone(got)
+        state = read_state(self.state)
+        self.assertIn("搜不到", state[DIGEST_ERROR])
+        self.assertNotIn(LAST_DIGEST, state)  # 失败不算出过
+
+
+def asyncio_run(coro):
+    import asyncio
+
+    return asyncio.run(coro)
 
 
 if __name__ == "__main__":
