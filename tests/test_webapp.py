@@ -277,25 +277,33 @@ class _FakeService:
         self.closed = True
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
 @unittest.skipUnless(HAVE_WEB, "没有 starlette / uvicorn，跳过网页层测试")
 class WebAppTest(unittest.TestCase):
+    retry_count = 0  # 传输层重试触发次数，跑完打出来看看这个补丁到底在盖什么
+
     @classmethod
     def setUpClass(cls) -> None:
+        cls.retry_count = 0
         cls.service = _FakeService()
-        cls.port = _free_port()
+        # 端口自己占住、一直不放，再交给 uvicorn 用。
+        #
+        # 别用"绑一下拿端口号、然后关掉、再让 uvicorn 去绑"——那中间有个窗口，
+        # 别的进程可能把这个端口抢走，测试就会在一次随机的时候挂掉。
+        # 间歇性失败的测试比没有测试更糟：你会开始怀疑是不是自己代码的锅。
+        cls.sock = socket.socket()
+        cls.sock.bind(("127.0.0.1", 0))
+        cls.sock.listen(16)
+        cls.port = int(cls.sock.getsockname()[1])
+
         # 不起后台定时任务：那会真读数据库、真写状态文件
         app = create_app(cls.service, start_scheduler=False)
         config = uvicorn.Config(
             app, host="127.0.0.1", port=cls.port, log_level="error"
         )
         cls.server = uvicorn.Server(config)
-        cls.thread = threading.Thread(target=cls.server.run, daemon=True)
+        cls.thread = threading.Thread(
+            target=cls.server.run, kwargs={"sockets": [cls.sock]}, daemon=True
+        )
         cls.thread.start()
 
         deadline = time.time() + 15
@@ -308,21 +316,73 @@ class WebAppTest(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.server.should_exit = True
         cls.thread.join(timeout=10)
+        cls.sock.close()
+        if cls.retry_count:
+            # 用 ASCII 输出：控制台按本地代码页解码时中文会变乱码，脚本就抓不到这个数了。
+            print(f"\n[transport-retry] {cls.retry_count} retries this run")
 
     # ------------------------------------------------------------------ 工具
 
     def url(self, path: str) -> str:
         return f"http://127.0.0.1:{self.port}{path}"
 
+    def _send(self, path: str, *, data: bytes | None = None):
+        """发请求；连接在传输层断掉就重试一次。
+
+        为什么允许重试：这套测试偶尔会撞上回环连接被重置，随机的某一条用例。
+        传输层的断连有两种类型，必须都接住：
+
+        * `ConnectionResetError` / `ConnectionAbortedError`（10054 / 10053，读响应时断）
+        * `urllib.error.URLError`（连接阶段就断，比如 10061 被拒）
+
+        为什么前者要单独写：urllib 的异常包装**不一致**——`do_open()` 只把
+        `h.request()`（连接 + 发请求）那一段的 OSError 包成 `URLError`，
+        而 `h.getresponse()`（读响应）在 try 外面，抛的是裸 OSError。
+        所以同样是"连接断了"，连不上是 URLError，连上了读不到是 ConnectionError。
+
+        ## 这里踩过一个坑，值得单独记下来
+
+        我一开始写的是 `except (ConnectionError, urllib.error.URLError)`，
+        看着挺合理，其实是个陷阱：**`HTTPError` 是 `URLError` 的子类**。
+        于是每个"故意期待 400/404"的用例都被当成"传输故障"重试 6 遍、
+        白打 6 次请求（时间线上一眼可见：所有 4xx 用例都卡 1.6 秒、retry=6）。
+        单轮连接数因此翻了三倍，反而把真正的连接重置制造了出来——
+        多进程并发跑时成片失败，一半以上的用例挂掉。
+
+        教训：**重试的捕获范围要比"看起来合理"更窄**。判断标准不是"异常类名像不像网络错"，
+        而是"这个异常代表传输没走通，还是代表服务端正常答复了"。4xx 是**正常答复**，
+        必须原样抛给调用方（测试里正是靠它断言状态码）。
+        这就是为什么下面先单独 `except HTTPError: raise`——子类必须先拦，
+        否则父类的分支会把它吞掉。
+
+        排除掉这个自伤之后，顺序跑上百轮一次都不触发重试。留着重试是为了让
+        多进程并发那种极端情况不至于因为一两次瞬时断连就红。
+
+        代价要说清楚：重试把语义从"最多一次"变成了"至少一次"。万一请求其实已经到达
+        应用、只是回包时连接断了，重试就会让接口被执行两次。这里敢这么做，是因为
+        被测的是假 service、端点也基本幂等；换成真实的下单/扣款类 POST，正确做法是
+        带幂等键，而不是无脑重发。
+        """
+        headers = {"Content-Type": "application/json"} if data is not None else {}
+        last: Exception | None = None
+        for attempt in range(4):
+            request = urllib.request.Request(self.url(path), data=data, headers=headers)
+            try:
+                return urllib.request.urlopen(request, timeout=20)
+            except urllib.error.HTTPError:
+                # 4xx/5xx 是正常答复，不是传输故障。子类必须先拦，不能被下面的父类吞掉。
+                raise
+            except (ConnectionError, urllib.error.URLError) as exc:
+                last = exc
+                type(self).retry_count += 1
+                time.sleep(min(0.05 * (2**attempt), 0.4))
+        raise last  # type: ignore[misc]
+
     def get(self, path: str):
-        return urllib.request.urlopen(self.url(path), timeout=20)
+        return self._send(path)
 
     def post(self, path: str, payload: dict | None = None):
-        body = json.dumps(payload or {}).encode()
-        request = urllib.request.Request(
-            self.url(path), data=body, headers={"Content-Type": "application/json"}
-        )
-        return urllib.request.urlopen(request, timeout=20)
+        return self._send(path, data=json.dumps(payload or {}).encode())
 
     # ------------------------------------------------------------------ 用例
 
