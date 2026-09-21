@@ -272,16 +272,20 @@ def new_session_id(now: datetime | None = None) -> str:
     return f"chat-{moment.strftime('%Y%m%d-%H%M%S')}"
 
 
-def open_session(session_id: str = DEFAULT_SESSION_ID) -> "SQLiteSession":
+def open_session(
+    session_id: str = DEFAULT_SESSION_ID, *, db_path: Path | None = None
+) -> "SQLiteSession":
     """打开（或新建）一个会话。数据库文件不存在会自动创建。
 
     session_id 相同就是同一段记忆；换个名字相当于开一段新的对话。
+    `db_path` 是给评测用的：把会话存到临时库里，别写进你真实的对话记录。
     """
     from agents import SessionSettings, SQLiteSession  # 只有真要开会话时才需要
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    target = Path(db_path) if db_path is not None else SESSION_DB
+    target.parent.mkdir(parents=True, exist_ok=True)
     return SQLiteSession(
         session_id,
-        db_path=SESSION_DB,
+        db_path=target,
         session_settings=SessionSettings(limit=HISTORY_LIMIT),
     )

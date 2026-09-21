@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.9.0
+## 当前版本：v0.10.0
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -467,6 +467,42 @@ python -m divana.digest --if-due  # 给系统定时任务用（今天出过就�
 > 第一次打开服务时它就会抓一期（从没出过，所以判定为"该跑"）。要花几次搜索
 > 加一次模型调用，大概十几秒。
 
+## 评测（v0.10）
+
+```powershell
+python -m divana.evals                 # 跑一遍，自动和 baseline 对比
+python -m divana.evals --save          # 第一次：把这次结果存成 baseline
+python -m divana.evals --attempts 3    # 每条跑 3 次看稳定性（成本翻三倍）
+python -m divana.evals --only repo-read,paper-read
+```
+
+用例在 `evals/cases.yaml`。一条只写四件事：**给她什么、必须做什么、禁止做什么、上限多少**。
+
+```yaml
+- id: repo-read
+  question: 帮我看看 openai/openai-agents-python 这个项目
+  expect_tools: [read_github_repo]    # 必须调
+  forbid_tools: [search_web]          # 不该调（有 API 就别去抓网页）
+  check_citations: true               # 顺便查引用是不是编的
+  max_tool_calls: 4                   # 上限
+```
+
+**第一版只做确定性检查**：它零成本、零噪声、可重复，而且判的是**轨迹**
+（她做了什么），不是文风。模型裁判留到以后——它贵、有噪声，判"事实对不对"最不可靠。
+
+三个设计点：
+
+- **隔离是结构上保证的**：每条用例在自己的临时目录里跑，画像 / 计划 / 笔记 / 会话库
+  全是新建的，跑完就删。所以评测**绝不会碰你真实的学习记录**——哪怕某条用例让 agent 去写文件。
+- **引用真实性是唯一能自动判的幻觉检查**：prompt 里写着"链接只能来自搜索结果"，
+  而"编出处"恰好是 agent 最常见的幻觉形态。检查方式是把回答里的 URL 抠出来，
+  逐个核对是否出现在工具返回里（有测试专门盯着它）。
+- **报告的重点是对比，不是分数**：`[回归]` 那一行才是评测存在的意义——原来能过的现在挂了。
+  另外每次都记录工具调用次数、模型调用次数和 token，因为"答对了但绕了八圈"也是一种退化。
+
+加用例最好的方式：**某天发现她答错了，就把当时那句话抄成一条**。那是回归用例，
+比手写合成的有价值得多——这句话也写在 `evals/cases.yaml` 的开头。
+
 ## 目录结构
 
 ```
@@ -484,6 +520,9 @@ python -m divana.digest --if-due  # 给系统定时任务用（今天出过就�
 │  ├─ content.py          正文（改文字只改这个文件）
 │  └─ build_handbook.py   排版（reportlab）
 ├─ output/pdf/            生成好的 PDF
+├─ evals/
+│  ├─ cases.yaml          评测用例（加用例只改这个文件）
+│  └─ baseline.json       上一次的结果，用来看变化
 ├─ divana/
 │  ├─ config.py           配置：密钥、接口地址、模型、搜索
 │  ├─ agent.py            agent 定义（人格 + 画像拼成 instructions）
@@ -505,6 +544,7 @@ python -m divana.digest --if-due  # 给系统定时任务用（今天出过就�
 │  ├─ scheduler.py        定时复盘：到点就跑，失败留痕
 │  ├─ state.py            跨运行的状态（上次复盘是什么时候）
 │  ├─ trash.py            回收站：删的东西先挪这儿，不真删
+│  ├─ evals/              评测：用例解析 / 确定性检查 / 报告对比 / 运行
 │  ├─ storage.py          原子写入
 │  ├─ session.py          会话持久化（SQLite）
 │  ├─ tools.py            给模型用的十个工具
@@ -538,6 +578,7 @@ python -m divana.digest --if-due  # 给系统定时任务用（今天出过就�
 - [x] **v0.8 会复盘** 拼素材 → 复盘者 → 追加进"复盘记录"；手动触发 + 服务后台定时
 - [x] **删除 · 回收站** 网页上删会话 / 笔记 / 复盘 / 阶段，全都先进 `data/trash`
 - [x] **v0.9 抓热点** 每天一期 AI 早报：它自己搜、按你的方向过滤、存进 `vault/digest/`
+- [x] **v0.10 评测** 15 条确定性用例 + baseline 对比（第一版只判"她做了什么"）
 
 **路线图上的事做完了。** 再往后可以做的（都没排期）：
 

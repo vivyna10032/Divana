@@ -10,6 +10,7 @@ import 全局单例，测试时想换一个临时目录都换不了。
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from .config import Settings
 from .notes import NoteStore
@@ -27,12 +28,18 @@ class DivanaContext:
     github_token: str = ""
 
 
-def build_context(settings: Settings) -> DivanaContext:
-    """按当前配置装配好所有资源。"""
+def build_context(settings: Settings, *, root: Path | None = None) -> DivanaContext:
+    """按当前配置装配好所有资源。
+
+    `root` 是给评测用的：把画像、计划、笔记都指向一个临时目录。
+    **评测绝对不该碰你真实的画像和笔记**——所以这个口子必须存在，
+    而不是靠"评测的时候小心点"。
+    """
+    base = Path(root) if root is not None else None
     context = DivanaContext(
-        profile=ProfileStore(),
-        notes=NoteStore(),
-        plan=PlanStore(),
+        profile=ProfileStore(base / "profile.md") if base else ProfileStore(),
+        notes=NoteStore(base / "notes") if base else NoteStore(),
+        plan=PlanStore(base / "plan.md") if base else PlanStore(),
         search=SearchClient(
             provider=settings.search_provider,
             api_key=settings.search_api_key,

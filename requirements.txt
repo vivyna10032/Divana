@@ -6,3 +6,7 @@ python-dotenv
 # 你的网页版会在某次重装环境后突然起不来，而原因很难查。
 starlette
 uvicorn
+
+# 评测用例是 YAML 写的（人读人改，比 JSON 好用）。它是被间接带进来的，
+# 但我们直接 import 了，所以得写在自己的清单里。
+pyyaml
