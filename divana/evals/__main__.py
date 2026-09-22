@@ -24,17 +24,32 @@ from .runner import run_all
 
 
 def _git_commit() -> str:
-    """当前提交号。分数变了要能对上"是哪一版代码"。"""
-    try:
-        done = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+    """当前提交号。分数变了要能对上"是哪一版代码"。
+
+    工作区有未提交改动时加个 `+脏`。不加的话你会踩这个坑：prompt 改了但还没提交，
+    这时存 baseline，它记的是 HEAD 那个提交——而那个提交里的 prompt 并不是你实际
+    跑的那一份。回头想复现"这一版为什么是 14/15"就找不到了。
+
+    只看**已跟踪文件**的改动（`--untracked-files=no`）：baseline.json 自己就是
+    个未跟踪文件，否则每次都会显示脏。
+    """
+
+    def git(*args: str):
+        return subprocess.run(
+            ["git", *args], capture_output=True, text=True, timeout=5
         )
+
+    try:
+        head = git("rev-parse", "--short", "HEAD")
+        if head.returncode != 0:
+            return ""
+        sha = head.stdout.strip()
+        dirty = git("status", "--porcelain", "--untracked-files=no")
     except (OSError, subprocess.SubprocessError):
         return ""
-    return done.stdout.strip() if done.returncode == 0 else ""
+    if dirty.returncode == 0 and dirty.stdout.strip():
+        return f"{sha}+脏"
+    return sha
 
 
 def main() -> None:

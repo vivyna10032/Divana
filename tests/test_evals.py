@@ -100,6 +100,34 @@ class LoadCasesTest(unittest.TestCase):
         made = case(follow_ups=["追问一", "追问二"])
         self.assertEqual(made.turns, ("问一句", "追问一", "追问二"))
 
+    def test_expect_pattern_accepts_a_plain_string(self) -> None:
+        made = case(expect_pattern="没找到|搜不到")
+        self.assertEqual(made.expect_pattern[0].pattern, "没找到|搜不到")
+        self.assertEqual(made.expect_pattern[0].label, "")
+
+    def test_expect_pattern_accepts_the_label_form(self) -> None:
+        made = parse_case(
+            {
+                "id": "a",
+                "question": "b",
+                "expect_pattern": [{"label": "如实说", "pattern": "没"}],
+            }
+        )
+        self.assertEqual(made.expect_pattern[0].label, "如实说")
+
+    def test_broken_regex_is_rejected_at_load_time(self) -> None:
+        """正则写错要在加载时就炸——别等某天正好跑到这条用例才发现。"""
+        path = self.write("- id: a\n  question: b\n  expect_pattern: '[没闭合'\n")
+        with self.assertRaises(CaseError) as ctx:
+            load_cases(path)
+        self.assertIn("正则", str(ctx.exception))
+
+    def test_expect_pattern_rejects_a_typo_in_the_item(self) -> None:
+        with self.assertRaises(CaseError):
+            parse_case(
+                {"id": "a", "question": "b", "expect_pattern": [{"patern": "x"}]}
+            )
+
     def test_given_state_is_parsed(self) -> None:
         made = parse_case(
             {"id": "a", "question": "b", "given": {"profile": {"目标": "找实习"}}}
@@ -153,6 +181,45 @@ class CheckCaseTest(unittest.TestCase):
             "回答里出现 没找到/搜不到 之一",
             failed_labels(check_case(made, outcome(text="这个项目很棒"))),
         )
+
+    def test_expect_pattern_hit_and_miss(self) -> None:
+        made = case(
+            expect_pattern=[
+                {"label": "如实说没搜到", "pattern": r"(没|未|不)[^\n]{0,60}(有关|相关|结果)"}
+            ]
+        )
+        self.assertEqual(
+            failed_labels(check_case(made, outcome(text="结果里没有一个相关的"))), []
+        )
+        self.assertEqual(
+            failed_labels(check_case(made, outcome(text="我搜到了三条相关资料"))),
+            ["如实说没搜到"],
+        )
+
+    def test_expect_pattern_label_falls_back_to_the_regex(self) -> None:
+        made = case(expect_pattern="没找到")
+        self.assertIn(
+            "回答符合 没找到", failed_labels(check_case(made, outcome(text="找到了")))
+        )
+
+    def test_empty_search_still_catches_the_wording_that_used_to_fail(self) -> None:
+        """那次误判的原话，得一直被这条用例接住。
+
+        2026-09-22 实测她答「结果里**没有一条**跟「zzqqxxyy」…有关的东西」——
+        意思对，但当时的词表一个都没命中，用例被判成失败。那次是尺子不准。
+        这条断言跟着用例文件走：以后谁把正则改窄了，这里会亮。
+        """
+        made = next(item for item in load_cases() if item.id == "empty-search")
+        real = (
+            "搜完了，结果里**没有一条**跟「zzqqxxyy」这个精确字符串有关的东西。\n\n"
+            "搜出来的是些字母相近、但拼写不一样的账号"
+        )
+        searched = outcome(text=real, tool_calls=(ToolCall("search_web", '{"query": "zzqqxxyy"}'),))
+        self.assertEqual(failed_labels(check_case(made, searched)), [])
+
+        # 反方向也要拦住：真找到了却说成别的，不该被判成过。
+        wrong = check_case(made, outcome(text="我搜到了三条相关资料，都在下面", tool_calls=searched.tool_calls))
+        self.assertTrue(any("如实说没搜到" in item.label for item in wrong if not item.ok))
 
     def test_empty_answer_fails(self) -> None:
         self.assertIn("有回答", failed_labels(check_case(case(), outcome(text="   "))))

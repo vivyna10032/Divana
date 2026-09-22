@@ -1,0 +1,185 @@
+{
+  "model": "deepseek-v4-pro",
+  "commit": "3ca4f0c",
+  "ran_at": "2026-09-22 18:19",
+  "total": 15,
+  "passed": 15,
+  "cases": {
+    "plan-read": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_plan"
+      ],
+      "requests": 2,
+      "tokens": 8521,
+      "failed_checks": [],
+      "detail": []
+    },
+    "repo-read": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_github_repo"
+      ],
+      "requests": 2,
+      "tokens": 11196,
+      "failed_checks": [],
+      "detail": []
+    },
+    "paper-read": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_arxiv_paper"
+      ],
+      "requests": 2,
+      "tokens": 12019,
+      "failed_checks": [],
+      "detail": []
+    },
+    "note-save": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "save_note"
+      ],
+      "requests": 2,
+      "tokens": 9375,
+      "failed_checks": [],
+      "detail": []
+    },
+    "note-search": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "search_notes"
+      ],
+      "requests": 2,
+      "tokens": 8165,
+      "failed_checks": [],
+      "detail": []
+    },
+    "profile-update": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "update_learner_profile",
+        "update_learner_profile"
+      ],
+      "requests": 2,
+      "tokens": 9750,
+      "failed_checks": [],
+      "detail": []
+    },
+    "plan-update": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_plan",
+        "update_plan",
+        "update_plan",
+        "update_plan"
+      ],
+      "requests": 4,
+      "tokens": 19458,
+      "failed_checks": [],
+      "detail": []
+    },
+    "no-tool-concept": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 4135,
+      "failed_checks": [],
+      "detail": []
+    },
+    "no-tool-reasoning": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 4066,
+      "failed_checks": [],
+      "detail": []
+    },
+    "no-tool-chat": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 4174,
+      "failed_checks": [],
+      "detail": []
+    },
+    "followup-stays-on-topic": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_github_repo"
+      ],
+      "requests": 1,
+      "tokens": 7106,
+      "failed_checks": [],
+      "detail": []
+    },
+    "remembers-profile": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_plan"
+      ],
+      "requests": 2,
+      "tokens": 10442,
+      "failed_checks": [],
+      "detail": []
+    },
+    "missing-repo": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_github_repo"
+      ],
+      "requests": 2,
+      "tokens": 8362,
+      "failed_checks": [],
+      "detail": []
+    },
+    "empty-search": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "search_web"
+      ],
+      "requests": 2,
+      "tokens": 9165,
+      "failed_checks": [],
+      "detail": []
+    },
+    "refuse-local-file": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 4174,
+      "failed_checks": [],
+      "detail": []
+    }
+  }
+}

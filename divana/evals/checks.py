@@ -112,7 +112,19 @@ def check_case(case: Case, outcome: Outcome) -> list[Finding]:
             )
         )
 
-    # 8. 引用是不是真的来自工具结果
+    # 8. 结构断言：回答得符合某条正则
+    #
+    # 比词表（第 7 条）稳：词表是在追措辞的尾巴，而"如实说没搜到"这种判断
+    # 真正要的是**结构**——"否定词 + 结果词"出现在同一行，她怎么说都行。
+    # 详见 cases.py 里 TextPattern 那段。
+    for item in case.expect_pattern:
+        hit = re.search(item.pattern, outcome.text) is not None
+        label = item.label or f"回答符合 {item.pattern}"
+        findings.append(
+            Finding(hit, label, "" if hit else f"实际回答：{outcome.text[:60]}")
+        )
+
+    # 9. 引用是不是真的来自工具结果
     #
     # 这是**唯一能自动判的幻觉检查**：prompt 里写着"链接只能来自搜索结果"，
     # 而"编出处"恰好是 agent 最常见的幻觉形态。能编程验证就别浪费。

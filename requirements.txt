@@ -1,6 +1,11 @@
 openai-agents
 python-dotenv
 
+# DeepSeek 走的是 OpenAI 兼容接口：config.py 要用它建客户端，
+# service.py 还直接用了 openai.types.responses 里的流式事件类型。
+# 它目前是 openai-agents 间接带进来的，但按下面的规矩，直接 import 就得自己写。
+openai
+
 # 网页版用到。其实 openai-agents 会通过 mcp 把它们间接带进来，但——
 # 你**直接 import 的包就该写在自己的清单里**，否则哪天上游不再需要它，
 # 你的网页版会在某次重装环境后突然起不来，而原因很难查。
