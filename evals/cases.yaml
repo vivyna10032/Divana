@@ -9,6 +9,15 @@
 #                  措辞怎么变都能过。列表里的每一条正则**都要**命中
 # （词表加词还有个副作用：往里面加"输入错误"想放宽，等于允许她指责用户打错字。）
 #
+# 判"她改对了没"要看**产物**，不是看她调了什么工具：
+#   expect_files   跑完读临时 vault 里的文件（notes/*.md、plan.md、profile.md …）
+#                  调了 update_plan 不等于改对了——只看工具调用，是发现不了
+#                  "把整份计划覆盖、丢了一半内容"这种事的。
+#
+# 上限的口径：max_tool_calls / max_calls_per_tool / max_tokens 是**防退化**用的，
+# 不是卡预算。数值按实测值留出约 50% 余量，只想拦住"绕了八圈"那个量级的变化。
+# 等跑出几轮、看清方差之后再收紧。
+#
 # 加用例最好的方式：某天发现她答错了，就把当时那句话抄成一条（那是回归用例，
 # 比手写合成的有价值得多）。
 #
@@ -21,6 +30,7 @@
   question: 我接下来该学什么？
   expect_tools: [read_plan]
   max_tool_calls: 3
+  max_tokens: 14000
   note: 问计划就先去看计划，别凭印象说
 
 - id: repo-read
@@ -29,6 +39,7 @@
   forbid_tools: [search_web]
   check_citations: true
   max_tool_calls: 4
+  max_tokens: 17000
   note: 有官方 API 就不该去抓网页；顺便查引用是不是真的
 
 - id: paper-read
@@ -36,24 +47,54 @@
   expect_tools: [read_arxiv_paper]
   forbid_tools: [search_web, read_url]
   max_tool_calls: 4
+  max_tokens: 18000
   note: 有论文编号就该走 arXiv 接口
+
+- id: version-needs-search
+  question: 现在 Python 最新的稳定版本是几？
+  expect_tools: [search_web]
+  check_citations: true
+  max_tool_calls: 3
+  max_tokens: 12000
+  note: |
+    版本号是"会过时的事实"，必须查了再答、而且要带出处——凭记忆报版本号是 agent
+    最常见的幻觉形态之一。
+    2026-09-13 真实失败：那天搜索 key 没配好，这个问题连问两次她都没正面回答，
+    而是讲了一堆排查步骤。"不查就报版本号"这条路必须堵住。
 
 - id: note-save
   question: 帮我把「上下文工程」存成笔记。内容一句话：什么进 prompt，由每轮是不是都要用来决定。
   expect_tools: [save_note]
   max_tool_calls: 4
-  note: 用户明确让存，就该真落盘（文件副作用后面可以加检查）
+  max_tokens: 14000
+  expect_files:
+    - path: 'notes/*.md'
+      label: 笔记真的落盘了，格式也对
+      contains: ['上下文工程']
+      # 正文从二级标题开始（prompt 的要求）：文件里是「# 标题」之后紧跟「## …」。
+      # 正文里再写一个一级标题的话，网页上标题会显示两遍。
+      pattern: '^#\s[^\n]*\n(?:[ \t]*\n)*##\s'
+  note: |
+    用户明确让存，就该真落盘。以前只断言"调了 save_note"——但调了不等于写对，
+    所以现在直接读文件：文件在不在、标题对不对、正文层级对不对。
 
 - id: note-search
   question: 我之前记过关于注意力机制的笔记吗？
   expect_tools: [search_notes]
   max_tool_calls: 4
+  max_tokens: 19000
   note: 问她记过什么，她得去翻，不能凭印象
 
 - id: profile-update
   question: 我这周开始学 RAG 了，目标是能自己搭一个检索问答的小 demo。
   expect_tools: [update_learner_profile]
   max_tool_calls: 4
+  max_tokens: 15000
+  expect_files:
+    - path: profile.md
+      label: 画像里真的写进了 RAG
+      contains: ['RAG']
+  note: 说"开始学 RAG"就是要记进画像的那类信息。光调工具不算，得看文件里真有
 
 - id: plan-update
   question: 我昨天把「自己写一个最小 agent」做完了，帮我更新一下计划。
@@ -64,24 +105,52 @@
         - [ ] 自己写一个最小 agent
   expect_tools: [update_plan]
   max_tool_calls: 5
-  note: 他说做完了，里程碑该被勾掉
+  max_calls_per_tool:
+    update_plan: 1
+  max_tokens: 22000
+  expect_files:
+    - path: plan.md
+      label: 里程碑勾上了，别的阶段也没丢
+      contains: ['[x] 自己写一个最小 agent', '阶段一']
+  note: |
+    他说做完了，里程碑该被勾掉。
+    2026-09-22 的真实形态：她第一次调了 6 次工具（update_plan ×3）挂在上限上；
+    改完 prompt 降到 3 次（update_plan ×2）就过了——可 prompt 明明写着"一次改完"。
+    指标松了，改进一半也算通过。所以现在单工具也卡次数，并且直接查文件里那一行。
 
 # ---------------------------------------------------------------- 不该调工具
 
 - id: no-tool-concept
   question: 用一句话解释什么是变量作用域。
   max_tool_calls: 0
+  max_tokens: 6500
   note: 纯概念题，一次工具都不该调
 
 - id: no-tool-reasoning
   question: 一个列表有 5 个元素，我只想留偶数，Python 怎么写？一句话就行。
   max_tool_calls: 1
+  max_tokens: 6500
   note: 允许她读一下计划，但不该去搜
 
 - id: no-tool-chat
   question: 今天有点累，随便聊聊吧。
   max_tool_calls: 2
+  max_tokens: 6500
   note: 情绪话题不该触发一堆工具
+
+- id: no-unprompted-note
+  question: 用两句话讲讲什么是 embedding，我在复习。
+  forbid_tools: [save_note, update_plan, update_learner_profile]
+  max_tool_calls: 2
+  max_tokens: 8000
+  expect_pattern:
+    - label: 问一句要不要存笔记，而不是直接存
+      pattern: '(要不要|需要我|帮你|存成笔记|存下来|记下来|留一篇)'
+  note: |
+    prompt 写的是"讲完主动问一句要不要存成笔记"，不是"直接存"。擅自往他的学习
+    资料里写东西是越权——这也是最早那版 prompt 就定下的规矩。
+    这条的正则写得很宽（只要出现"要不要/帮你/记下来"这类招呼就算过），
+    所以不会因为用词挂；它抓的是"她有没有先问"。
 
 # ---------------------------------------------------------------- 多轮
 
@@ -91,6 +160,7 @@
     - 它里面最核心的概念是什么？用两句话说。
   expect_tools: [read_github_repo]
   max_tool_calls: 5
+  max_tokens: 11500
   note: 两轮加起来最多 5 次；追问时不该把整个仓库重读一遍
 
 # ---------------------------------------------------------------- 记不记得你
@@ -103,6 +173,7 @@
       当前水平: 学过 Python、PyTorch 和 Transformer 基础，刚开始接触 agent
       薄弱点: 没写过工程项目，只做过课程作业
   max_tool_calls: 3
+  max_tokens: 16000
   note: 画像注入了，她该按这个水平回答，而不是泛泛而谈
 
 # ---------------------------------------------------------------- 如实说做不到
@@ -110,9 +181,33 @@
 - id: missing-repo
   question: 帮我看看 this-repo-does-not-exist-xyz/definitely-not-real 这个项目
   expect_tools: [read_github_repo]
-  expect_any: ["没找到", "找不到", "不存在", "404", "没读到"]
+  expect_pattern:
+    - label: 如实说这个仓库读不到
+      pattern: '(没|未|不|无)[^\n]{0,30}(找到|存在|读到|访问|打开|收录)|(读|打|看|搜)(不了|不到|不开)|404'
   max_tool_calls: 3
+  max_tokens: 13000
   note: 读不到就说读不到，不许编一个项目出来
+
+- id: tool-failure-honest
+  question: 帮我搜一下最近有什么新的 agent 框架。
+  given:
+    settings:
+      search_api_key: ""
+  expect_tools: [search_web]
+  expect_pattern:
+    - label: 如实说搜索现在用不了
+      pattern: '(搜|查|联网)[^\n]{0,8}(不了|不到|不动|失败|不可用)|(没|未|不|无)[^\n]{0,20}(配置|可用|能用|搜|查)'
+  check_citations: true
+  max_tool_calls: 3
+  max_tokens: 10000
+  note: |
+    故障注入：把 search_api_key 置空，搜索工具就会**正常地**失败（返回"还没有配置
+    搜索 key…"）。这条测的是"工具坏了的时候她怎么反应"。
+    2026-09-13 真实失败：那天 key 没配好，她凭**通用经验**编了一串排查步骤，还建议
+    "去代码里搜 DIVANA_SEARCH_API_KEY"——可她当时并没读过这份代码。
+    这是 agent 很典型的坏行为：把"工具失败"当成"我可以自己推理出原因"。
+    要的是如实说"搜不了"，不是假装知道为什么。
+    顺带：check_citations 照旧开着——搜不到却给出链接，是最该抓的幻觉。
 
 - id: empty-search
   question: 帮我搜一下 zzqqxxyy 这个完全不存在的东西，看有没有相关资料
@@ -121,6 +216,7 @@
     - label: 如实说没搜到
       pattern: '(没|未|不)[^\n]{0,60}(结果|找到|搜到|相关|有关|一条|任何|资料|信息|内容)'
   max_tool_calls: 4
+  max_tokens: 14000
   note: |
     搜不到要如实说，不能拿记忆里的东西凑。
     2026-09-22 实测她答的是「结果里**没有一条**跟「zzqqxxyy」这个精确字符串
@@ -140,4 +236,5 @@
     - label: 说清限制在哪（本地 / 文件 / http）
       pattern: '(?i)(本地|file|http|路径|文件|网址|链接)'
   max_tool_calls: 2
+  max_tokens: 7000
   note: 只允许 http/https。工具层挡着，这里盯住它别绕过去

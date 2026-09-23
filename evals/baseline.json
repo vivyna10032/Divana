@@ -1,7 +1,7 @@
 {
   "model": "deepseek-v4-pro",
-  "commit": "3ca4f0c",
-  "ran_at": "2026-09-22 18:19",
+  "commit": "72b6265",
+  "ran_at": "2026-09-23 17:33",
   "total": 15,
   "passed": 15,
   "cases": {
@@ -10,10 +10,11 @@
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
-        "read_plan"
+        "read_plan",
+        "search_notes"
       ],
       "requests": 2,
-      "tokens": 8521,
+      "tokens": 8923,
       "failed_checks": [],
       "detail": []
     },
@@ -25,7 +26,7 @@
         "read_github_repo"
       ],
       "requests": 2,
-      "tokens": 11196,
+      "tokens": 11335,
       "failed_checks": [],
       "detail": []
     },
@@ -37,7 +38,7 @@
         "read_arxiv_paper"
       ],
       "requests": 2,
-      "tokens": 12019,
+      "tokens": 11795,
       "failed_checks": [],
       "detail": []
     },
@@ -49,7 +50,7 @@
         "save_note"
       ],
       "requests": 2,
-      "tokens": 9375,
+      "tokens": 8889,
       "failed_checks": [],
       "detail": []
     },
@@ -58,10 +59,11 @@
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
+        "search_notes",
         "search_notes"
       ],
-      "requests": 2,
-      "tokens": 8165,
+      "requests": 3,
+      "tokens": 12644,
       "failed_checks": [],
       "detail": []
     },
@@ -70,11 +72,10 @@
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
-        "update_learner_profile",
         "update_learner_profile"
       ],
       "requests": 2,
-      "tokens": 9750,
+      "tokens": 9785,
       "failed_checks": [],
       "detail": []
     },
@@ -85,11 +86,10 @@
       "tool_calls": [
         "read_plan",
         "update_plan",
-        "update_plan",
         "update_plan"
       ],
-      "requests": 4,
-      "tokens": 19458,
+      "requests": 3,
+      "tokens": 15726,
       "failed_checks": [],
       "detail": []
     },
@@ -99,7 +99,7 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4135,
+      "tokens": 4160,
       "failed_checks": [],
       "detail": []
     },
@@ -109,7 +109,7 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4066,
+      "tokens": 4095,
       "failed_checks": [],
       "detail": []
     },
@@ -119,7 +119,7 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4174,
+      "tokens": 4170,
       "failed_checks": [],
       "detail": []
     },
@@ -131,7 +131,7 @@
         "read_github_repo"
       ],
       "requests": 1,
-      "tokens": 7106,
+      "tokens": 7255,
       "failed_checks": [],
       "detail": []
     },
@@ -143,7 +143,7 @@
         "read_plan"
       ],
       "requests": 2,
-      "tokens": 10442,
+      "tokens": 10407,
       "failed_checks": [],
       "detail": []
     },
@@ -155,7 +155,7 @@
         "read_github_repo"
       ],
       "requests": 2,
-      "tokens": 8362,
+      "tokens": 8577,
       "failed_checks": [],
       "detail": []
     },
@@ -167,7 +167,7 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 9165,
+      "tokens": 9279,
       "failed_checks": [],
       "detail": []
     },
@@ -177,7 +177,7 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4174,
+      "tokens": 4237,
       "failed_checks": [],
       "detail": []
     }

@@ -9,10 +9,18 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from divana.evals.cases import Case, CaseError, load_cases, parse_case
-from divana.evals.checks import Finding, Outcome, ToolCall, check_case, urls_in
+from divana.evals.checks import (
+    FileSnapshot,
+    Finding,
+    Outcome,
+    ToolCall,
+    check_case,
+    urls_in,
+)
 from divana.evals.report import (
     CaseResult,
     compare,
@@ -21,6 +29,7 @@ from divana.evals.report import (
     save_baseline,
     summarize,
 )
+from divana.notes import render_note
 
 
 def case(**overrides) -> Case:
@@ -127,6 +136,80 @@ class LoadCasesTest(unittest.TestCase):
             parse_case(
                 {"id": "a", "question": "b", "expect_pattern": [{"patern": "x"}]}
             )
+
+    def test_expect_files_is_parsed(self) -> None:
+        made = case(
+            expect_files=[
+                {
+                    "path": "notes/*.md",
+                    "contains": ["上下文工程"],
+                    "pattern": r"^#\s",
+                    "label": "笔记落盘了",
+                }
+            ]
+        )
+        spec = made.expect_files[0]
+        self.assertEqual(spec.path, "notes/*.md")
+        self.assertEqual(spec.contains, ("上下文工程",))
+        self.assertEqual(spec.label, "笔记落盘了")
+        self.assertTrue(spec.exists)
+
+    def test_expect_files_needs_some_assertion(self) -> None:
+        """只写个 path 什么条件都不写，等于白写——宁可报错。"""
+        with self.assertRaises(CaseError) as ctx:
+            parse_case({"id": "a", "question": "b", "expect_files": [{"path": "plan.md"}]})
+        self.assertIn("白写", str(ctx.exception))
+
+    def test_expect_files_rejects_a_broken_regex(self) -> None:
+        with self.assertRaises(CaseError) as ctx:
+            parse_case(
+                {
+                    "id": "a",
+                    "question": "b",
+                    "expect_files": [{"path": "plan.md", "pattern": "[没闭合"}],
+                }
+            )
+        self.assertIn("正则", str(ctx.exception))
+
+    def test_max_calls_per_tool_is_parsed(self) -> None:
+        made = case(max_calls_per_tool={"update_plan": 1})
+        self.assertEqual(made.max_calls_per_tool, {"update_plan": 1})
+        for bad in ("一次", -1, True):
+            with self.assertRaises(CaseError):
+                parse_case({"id": "a", "question": "b", "max_calls_per_tool": {"x": bad}})
+
+    def test_given_settings_is_parsed(self) -> None:
+        made = parse_case(
+            {"id": "a", "question": "b", "given": {"settings": {"search_api_key": ""}}}
+        )
+        self.assertEqual(made.given_settings, {"search_api_key": ""})
+
+    def test_given_rejects_unknown_sections(self) -> None:
+        with self.assertRaises(CaseError):
+            parse_case({"id": "a", "question": "b", "given": {"setting": {}}})
+
+    def test_given_settings_fields_really_exist_on_Settings(self) -> None:
+        """用例里覆盖的配置项必须真的存在。
+
+        `given.settings` 是拿字段名去覆盖 Settings 的，写错一个字母只会在跑用例时
+        抛 TypeError。这一层（cases.py）不该 import config，所以这条测试就是那个
+        检查——把"字段名写错"挡在评测开跑之前。
+        """
+        from dataclasses import fields
+
+        from divana.config import Settings
+
+        real = {item.name for item in fields(Settings)}
+        used = {key for item in load_cases() for key in item.given_settings}
+        self.assertTrue(used.issubset(real), f"用例里写了不存在的配置项：{used - real}")
+
+    def test_case_file_uses_the_new_assertions(self) -> None:
+        """用例文件里得真的用上这几类断言，不然等于白加功能。"""
+        cases = load_cases()
+        self.assertTrue(any(item.expect_files for item in cases))
+        self.assertTrue(any(item.max_calls_per_tool for item in cases))
+        self.assertTrue(any(item.given_settings for item in cases))
+        self.assertTrue(any(item.max_tokens for item in cases))
 
     def test_given_state_is_parsed(self) -> None:
         made = parse_case(
@@ -251,6 +334,80 @@ class CheckCaseTest(unittest.TestCase):
 
     def test_urls_in_strips_chinese_punctuation(self) -> None:
         self.assertEqual(urls_in("看 https://a.example/x。"), ["https://a.example/x"])
+
+    # ------------------------------------------------------ 文件副作用断言
+
+    def test_file_expectation_passes_for_the_real_note_format(self) -> None:
+        """拿真的 render_note 输出验证式，而不是手写一段"我以为的样子"。"""
+        text = render_note(
+            "上下文工程",
+            "## 什么进 prompt\n\n由每轮是不是都要用来决定。",
+            ("agent",),
+            date(2026, 9, 23),
+        )
+        made = case(
+            expect_files=[
+                {
+                    "path": "notes/*.md",
+                    "contains": ["上下文工程"],
+                    "pattern": r"^#\s[^\n]*\n(?:[ \t]*\n)*##\s",
+                }
+            ]
+        )
+        got = outcome(files=(FileSnapshot("notes/2026-09-23-上下文工程.md", text),))
+        self.assertEqual(failed_labels(check_case(made, got)), [])
+
+    def test_file_expectation_fails_when_nothing_was_written(self) -> None:
+        made = case(expect_files=[{"path": "plan.md", "contains": ["- [x]"]}])
+        labels = failed_labels(check_case(made, outcome(files=())))
+        self.assertIn("文件 plan.md 被写出来了", labels)
+
+    def test_file_expectation_passes_if_any_matching_file_fits(self) -> None:
+        """她多存一篇笔记，不该把这条判死——有一个满足就算过。"""
+        made = case(expect_files=[{"path": "notes/*.md", "contains": ["RAG"]}])
+        got = outcome(
+            files=(
+                FileSnapshot("notes/a.md", "## 别的"),
+                FileSnapshot("notes/b.md", "## 关于 RAG"),
+            )
+        )
+        self.assertEqual(failed_labels(check_case(made, got)), [])
+
+    def test_file_expectation_can_assert_a_file_was_absent(self) -> None:
+        made = case(expect_files=[{"path": "notes/*.md", "exists": False}])
+        self.assertEqual(failed_labels(check_case(made, outcome(files=()))), [])
+        got = outcome(files=(FileSnapshot("notes/a.md", "## 擅自存的"),))
+        self.assertIn("文件 notes/*.md 不该被写出来", failed_labels(check_case(made, got)))
+
+    def test_per_tool_limit_catches_the_second_update_plan(self) -> None:
+        """2026-09-22 的真实形态：总数没超，但 update_plan 被调了两次。
+
+        这条用的就是真实的用例定义，以后谁把断言删了这里会亮。
+        """
+        made = next(item for item in load_cases() if item.id == "plan-update")
+        got = outcome(
+            text="改好了",
+            tool_calls=(
+                ToolCall("read_plan", "{}"),
+                ToolCall("update_plan", '{"section": "路线图"}'),
+                ToolCall("update_plan", '{"section": "下一步"}'),
+            ),
+            files=(FileSnapshot("plan.md", "### 阶段一：agent 基础\n- [x] 自己写一个最小 agent\n"),),
+        )
+        labels = failed_labels(check_case(made, got))
+        self.assertTrue(any("update_plan 最多调 1 次" in item for item in labels))
+        self.assertFalse(any("里程碑" in item for item in labels))  # 文件那部分是对的
+
+    def test_plan_update_case_requires_the_checkmark(self) -> None:
+        made = next(item for item in load_cases() if item.id == "plan-update")
+        got = outcome(
+            text="改好了",
+            tool_calls=(ToolCall("update_plan", "{}"),),
+            files=(FileSnapshot("plan.md", "### 阶段一：agent 基础\n- [ ] 自己写一个最小 agent\n"),),
+        )
+        self.assertTrue(
+            any("里程碑" in item for item in failed_labels(check_case(made, got)))
+        )
 
 
 class ReportTest(unittest.TestCase):

@@ -10,6 +10,7 @@ agents 的导入放在函数里，这样这个模块不装 agent 栈也能导入
 from __future__ import annotations
 
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from ..agent import build_agent
@@ -17,17 +18,48 @@ from ..config import Settings
 from ..context import build_context
 from ..session import open_session
 from .cases import Case
-from .checks import Outcome, ToolCall, check_case
+from .checks import FileSnapshot, Outcome, ToolCall, check_case
 from .report import CaseResult
+
+
+def _snapshot(vault: Path) -> tuple[FileSnapshot, ...]:
+    """把临时 vault 里的文件拍个快照——**必须赶在临时目录被删掉之前**。
+
+    这就是"文件副作用断言"的数据来源：跑完之后她到底写出了什么。
+    只收文件，而且都在这个临时目录里，不会碰到你真实的 vault。
+    """
+    if not vault.is_dir():
+        return ()
+    shots: list[FileSnapshot] = []
+    for path in sorted(vault.rglob("*")):
+        if path.is_file():
+            shots.append(
+                FileSnapshot(
+                    path=path.relative_to(vault).as_posix(),
+                    text=path.read_text(encoding="utf-8", errors="replace"),
+                )
+            )
+    return tuple(shots)
 
 
 async def _run_once(settings: Settings, case: Case) -> Outcome:
     """跑一遍：多轮用例就在同一条会话里连着问。"""
     from agents import Runner, ToolCallItem, ToolCallOutputItem
 
+    # 用例可以覆盖几项配置，用来造"工具此时不可用"这类场景：比如把 search_api_key
+    # 置空，搜索工具就会**正常地**失败——不用真去搞坏一个 key，也不必真把网断掉。
+    if case.given_settings:
+        try:
+            settings = replace(settings, **case.given_settings)
+        except TypeError as exc:
+            raise RuntimeError(
+                f"用例 {case.id} 的 given.settings 写错了：{exc}"
+            ) from exc
+
     with tempfile.TemporaryDirectory(prefix=f"divana-eval-{case.id}-") as tmp:
         root = Path(tmp)
-        context = build_context(settings, root=root / "vault")
+        vault = root / "vault"
+        context = build_context(settings, root=vault)
 
         # 用例指定的前置状态：想测"她记不记得你"，就得能塞一份画像进去
         for section, content in case.given_profile.items():
@@ -63,12 +95,16 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
         finally:
             session.close()
 
+        # 出了这个 with，临时目录就没了——所以快照必须在这儿做。
+        files = _snapshot(vault)
+
     return Outcome(
         text=text,
         tool_calls=tuple(calls),
         tool_outputs=tuple(outputs),
         tokens=tokens,
         requests=requests,
+        files=files,
     )
 
 
