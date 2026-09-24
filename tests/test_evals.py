@@ -424,35 +424,36 @@ class CheckCaseTest(unittest.TestCase):
         got = outcome(files=(FileSnapshot("notes/a.md", "## 擅自存的"),))
         self.assertIn("文件 notes/*.md 不该被写出来", failed_labels(check_case(made, got)))
 
-    def test_plan_update_forbids_touching_the_profile(self) -> None:
-        """2026-09-23 的真实形态：改计划时顺手调了 update_learner_profile。
+    def test_plan_update_allows_recording_the_progress(self) -> None:
+        """他说"我把 X 做完了"——那正是画像规则里"已经掌握什么"该记的信息。
 
-        这条用的就是真实的用例定义，以后谁把断言删了这里会亮。
-
-        注意这里**不**卡 `update_plan` 的次数：接口一次只能改一节（见
-        tools.py 的签名），要动两节就得调两次——那不是绕圈。曾经卡过
-        "最多 1 次"，那是错怪了她。
+        这条用例被**错怪过两次**，两次都是断言/规则和别处打架：
+        · 卡 `update_plan` 次数——可接口一次只能改一节，要动两节就得调两次。
+        · 卡 `update_learner_profile`——可 prompt 自己两条规则打架（画像那节说要记，
+          计划那节说别记）。她按哪条做都会违反另一条。
+        现在两条都不卡，成本交给 `max_llm_calls`。
         """
         made = next(item for item in load_cases() if item.id == "plan-update")
-        got = outcome(
-            text="改好了",
-            tool_calls=(
-                ToolCall("read_plan", "{}"),
-                ToolCall("update_plan", '{"section": "路线图"}'),
-                ToolCall("update_plan", '{"section": "下一步"}'),
-                ToolCall("update_learner_profile", '{"section": "当前水平"}'),
-            ),
-            files=(
-                FileSnapshot(
-                    "plan.md", "### 阶段一：agent 基础\n- [x] 自己写一个最小 agent\n"
-                ),
-            ),
+        calls = (ToolCall("read_plan", "{}"),
+                 ToolCall("update_plan", '{"section": "路线图"}'),
+                 ToolCall("update_plan", '{"section": "下一步"}'),
+                 ToolCall("update_learner_profile", '{"section": "已掌握"}'))
+        files = (
+            FileSnapshot("plan.md", "### 阶段一：agent 基础\n- [x] 自己写一个最小 agent\n"),
         )
-        labels = failed_labels(check_case(made, got))
-        self.assertIn("没有调用 update_learner_profile", labels)
-        # 改了两次 update_plan 不该被判错，文件那部分也是对的
-        self.assertFalse(any("update_plan" in item for item in labels))
-        self.assertFalse(any("里程碑" in item for item in labels))
+        three = tuple(LlmCall(turn=1, input_tokens=1, output_tokens=1) for _ in range(3))
+
+        ok = outcome(text="改好了", tool_calls=calls, llm_calls=three, files=files)
+        self.assertEqual(failed_labels(check_case(made, ok)), [])
+
+        # 但"绕了几圈"仍然卡着：上限 4，这里 5
+        five = outcome(
+            text="改好了",
+            tool_calls=calls,
+            llm_calls=three + tuple(LlmCall(turn=1, input_tokens=1, output_tokens=1) for _ in range(2)),
+            files=files,
+        )
+        self.assertIn("模型调用不超过 4 次", failed_labels(check_case(made, five)))
 
     def test_followup_case_bans_rereading_the_same_repo(self) -> None:
         """追问时把整个仓库重读一遍：总次数上限拦不住它。"""
@@ -552,6 +553,27 @@ class TrajectoryTest(unittest.TestCase):
         self.assertIn("## 现在的位置", text)
         self.assertIn("**她说**", text)
         self.assertIn("你该先学 agent 循环", text)
+
+    def test_trajectory_keeps_every_thing_she_said_in_a_turn(self) -> None:
+        """一轮里她可能"先说话 → 调工具 → 再收尾"，三段都要按顺序留在轨迹里。
+
+        2026-09-24 的教训：只看 `result.final_output` 的话，第一段会被丢掉，
+        于是"她其实答了"被误判成"她没答"。
+        """
+        made, result = self.make(
+            steps=(
+                Step(kind="turn", text="问"),
+                Step(kind="reply", text="先把结论讲一遍"),
+                Step(kind="tool", name="update_learner_profile", output="已更新"),
+                Step(kind="reply", text="记好了，要不要存成笔记？"),
+            )
+        )
+        text = render_trajectory(made, result)
+        first = text.index("先把结论讲一遍")
+        middle = text.index("**调用 `update_learner_profile`**")
+        last = text.index("记好了，要不要存成笔记？")
+        self.assertLess(first, middle)
+        self.assertLess(middle, last)
 
     def test_lists_the_failed_checks(self) -> None:
         made, result = self.make()

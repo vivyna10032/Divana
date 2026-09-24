@@ -111,7 +111,13 @@ def _llm_calls(result, turn: int) -> list[LlmCall]:
 
 async def _run_once(settings: Settings, case: Case) -> Outcome:
     """跑一遍：多轮用例就在同一条会话里连着问。"""
-    from agents import Runner, ToolCallItem, ToolCallOutputItem
+    from agents import (
+        ItemHelpers,
+        MessageOutputItem,
+        Runner,
+        ToolCallItem,
+        ToolCallOutputItem,
+    )
 
     # 用例可以覆盖几项配置，用来造"工具此时不可用"这类场景：比如把 search_api_key
     # 置空，搜索工具就会**正常地**失败——不用真去搞坏一个 key，也不必真把网断掉。
@@ -148,6 +154,7 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
                 steps.append(Step(kind="turn", text=turn))
                 result = await Runner.run(agent, turn, session=session, context=context)
                 llm_calls.extend(_llm_calls(result, number))
+                said: list[str] = []
                 for item in result.new_items:
                     if isinstance(item, ToolCallItem):
                         raw = item.raw_item
@@ -159,6 +166,19 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
                                 arguments=str(getattr(raw, "arguments", "") or ""),
                             )
                         )
+                    elif isinstance(item, MessageOutputItem):
+                        # 她在这一轮**说给用户的话**，按顺序全收。
+                        #
+                        # 为什么不能只用 `result.final_output`：它只保留**最后一次**
+                        # 模型调用的文本。而模型完全可能在"要调工具"的那次响应里就
+                        # 先把话说完（实测那次讲解约 700 token），再调工具、再收尾——
+                        # 这时 final_output 只有收尾那几十个字，前面那段就被丢掉了。
+                        # 2026-09-24 就是被这个坑骗过：看 final_output 以为"她没回答
+                        # 问题"，其实她答了，只是答案在被丢掉的那一段里。
+                        piece = ItemHelpers.text_message_output(item).strip()
+                        if piece:
+                            said.append(piece)
+                            steps.append(Step(kind="reply", text=piece))
                     elif isinstance(item, ToolCallOutputItem):
                         output = str(getattr(item, "output", "") or "")
                         outputs.append(output)
@@ -169,8 +189,8 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
                             if steps[index].kind == "tool" and not steps[index].output:
                                 steps[index] = replace(steps[index], output=output)
                                 break
-                text = str(result.final_output or "")
-                steps.append(Step(kind="reply", text=text))
+                # 这一轮她说的话 = 按顺序拼起来的所有文本（没有就退回 final_output）
+                text = "\n\n".join(said) or str(result.final_output or "")
                 usage = getattr(result.context_wrapper, "usage", None)
                 if usage is not None:
                     requests += int(getattr(usage, "requests", 0) or 0)

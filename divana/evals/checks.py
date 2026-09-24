@@ -76,6 +76,12 @@ class Outcome:
     """一次运行的原始结果。检查器只看这个对象。"""
 
     text: str
+    """她**这一轮说给用户的所有文本**（按顺序拼起来），不只是最后一次调用的那段。
+
+    模型可以在"要调工具"的那次响应里先把话说完再调工具（实测那次讲解约 700 token），
+    这时 `result.final_output` 只剩收尾那几十个字——只取它会把正文丢掉。
+    2026-09-24 就被这个坑骗过：看 final_output 以为"她没回答问题"，其实她答了。
+    """
     tool_calls: tuple[ToolCall, ...] = ()
     tool_outputs: tuple[str, ...] = ()
     tokens: int = 0
