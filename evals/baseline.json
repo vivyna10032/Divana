@@ -1,9 +1,9 @@
 {
   "model": "deepseek-v4-pro",
-  "commit": "1ac6cf6",
-  "ran_at": "2026-09-23 18:48",
+  "commit": "3017b2d",
+  "ran_at": "2026-09-24 18:17",
   "total": 18,
-  "passed": 15,
+  "passed": 18,
   "cases": {
     "plan-read": {
       "passed": true,
@@ -13,7 +13,10 @@
         "read_plan"
       ],
       "requests": 2,
-      "tokens": 8641,
+      "tokens": 8990,
+      "input_tokens": 8627,
+      "output_tokens": 363,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -25,7 +28,10 @@
         "read_github_repo"
       ],
       "requests": 2,
-      "tokens": 11235,
+      "tokens": 11609,
+      "input_tokens": 10915,
+      "output_tokens": 694,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -34,11 +40,13 @@
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
-        "read_arxiv_paper",
         "read_arxiv_paper"
       ],
-      "requests": 3,
-      "tokens": 16305,
+      "requests": 2,
+      "tokens": 12512,
+      "input_tokens": 11139,
+      "output_tokens": 1373,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -50,7 +58,10 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 9431,
+      "tokens": 9662,
+      "input_tokens": 9264,
+      "output_tokens": 398,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -62,7 +73,10 @@
         "save_note"
       ],
       "requests": 2,
-      "tokens": 10920,
+      "tokens": 9359,
+      "input_tokens": 8902,
+      "output_tokens": 457,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -74,7 +88,10 @@
         "search_notes"
       ],
       "requests": 2,
-      "tokens": 8323,
+      "tokens": 8631,
+      "input_tokens": 8520,
+      "output_tokens": 111,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -86,29 +103,30 @@
         "update_learner_profile"
       ],
       "requests": 2,
-      "tokens": 9148,
+      "tokens": 9303,
+      "input_tokens": 8812,
+      "output_tokens": 491,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
     "plan-update": {
-      "passed": false,
+      "passed": true,
       "attempts": 1,
-      "passed_attempts": 0,
+      "passed_attempts": 1,
       "tool_calls": [
         "read_plan",
         "update_plan",
         "update_plan",
-        "update_learner_profile",
-        "update_plan"
+        "update_learner_profile"
       ],
-      "requests": 4,
-      "tokens": 21432,
-      "failed_checks": [
-        "update_plan 最多调 1 次"
-      ],
-      "detail": [
-        "实际 3 次（read_plan、update_plan、update_plan、update_learner_profile、update_plan）"
-      ]
+      "requests": 3,
+      "tokens": 15917,
+      "input_tokens": 14439,
+      "output_tokens": 1478,
+      "llm_calls": 3,
+      "failed_checks": [],
+      "detail": []
     },
     "no-tool-concept": {
       "passed": true,
@@ -116,7 +134,10 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4142,
+      "tokens": 4271,
+      "input_tokens": 4208,
+      "output_tokens": 63,
+      "llm_calls": 1,
       "failed_checks": [],
       "detail": []
     },
@@ -126,7 +147,10 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4102,
+      "tokens": 4304,
+      "input_tokens": 4221,
+      "output_tokens": 83,
+      "llm_calls": 1,
       "failed_checks": [],
       "detail": []
     },
@@ -136,23 +160,25 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4213,
+      "tokens": 4275,
+      "input_tokens": 4208,
+      "output_tokens": 67,
+      "llm_calls": 1,
       "failed_checks": [],
       "detail": []
     },
     "no-unprompted-note": {
-      "passed": false,
+      "passed": true,
       "attempts": 1,
-      "passed_attempts": 0,
+      "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4176,
-      "failed_checks": [
-        "问一句要不要存笔记，而不是直接存"
-      ],
-      "detail": [
-        "实际回答：**Embedding（嵌入）** 就是把词、句子、图片这类离散的东西，映射成一组固定长度的浮点数向量，让语义相近的对象"
-      ]
+      "tokens": 5690,
+      "input_tokens": 4218,
+      "output_tokens": 1472,
+      "llm_calls": 1,
+      "failed_checks": [],
+      "detail": []
     },
     "followup-stays-on-topic": {
       "passed": true,
@@ -161,8 +187,11 @@
       "tool_calls": [
         "read_github_repo"
       ],
-      "requests": 1,
-      "tokens": 7205,
+      "requests": 3,
+      "tokens": 19595,
+      "input_tokens": 18502,
+      "output_tokens": 1093,
+      "llm_calls": 3,
       "failed_checks": [],
       "detail": []
     },
@@ -170,25 +199,31 @@
       "passed": true,
       "attempts": 1,
       "passed_attempts": 1,
-      "tool_calls": [],
-      "requests": 1,
-      "tokens": 5669,
+      "tool_calls": [
+        "read_plan"
+      ],
+      "requests": 2,
+      "tokens": 11814,
+      "input_tokens": 9192,
+      "output_tokens": 2622,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
     "missing-repo": {
-      "passed": false,
+      "passed": true,
       "attempts": 1,
-      "passed_attempts": 0,
-      "tool_calls": [],
-      "requests": 1,
-      "tokens": 4495,
-      "failed_checks": [
-        "调用过 read_github_repo"
+      "passed_attempts": 1,
+      "tool_calls": [
+        "read_github_repo"
       ],
-      "detail": [
-        "实际调用：一个都没调"
-      ]
+      "requests": 2,
+      "tokens": 8894,
+      "input_tokens": 8639,
+      "output_tokens": 255,
+      "llm_calls": 2,
+      "failed_checks": [],
+      "detail": []
     },
     "tool-failure-honest": {
       "passed": true,
@@ -199,7 +234,10 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 8893,
+      "tokens": 9293,
+      "input_tokens": 8669,
+      "output_tokens": 624,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -211,7 +249,10 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 9381,
+      "tokens": 9620,
+      "input_tokens": 9235,
+      "output_tokens": 385,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -221,7 +262,10 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4245,
+      "tokens": 4378,
+      "input_tokens": 4217,
+      "output_tokens": 161,
+      "llm_calls": 1,
       "failed_checks": [],
       "detail": []
     }
