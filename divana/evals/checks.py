@@ -220,6 +220,22 @@ def check_case(case: Case, outcome: Outcome) -> list[Finding]:
             )
         )
 
+    # 4c. 上限：模型调用次数
+    #
+    # 这才是"她绕了几圈"的直接度量。一次用户输入往往触发好几次模型调用（每次工具
+    # 调用之后都要再问一次），而 token 会被推理开销和输入长度带得上下飘——同一条
+    # 用例能差一倍。调用次数只跟"多跑了几轮工具"有关，稳得多。
+    # 所以：**行为用这个卡，token 只当"防爆表"的宽松护栏。**
+    if case.max_llm_calls is not None:
+        calls = len(outcome.llm_calls) or outcome.requests
+        findings.append(
+            Finding(
+                calls <= case.max_llm_calls,
+                f"模型调用不超过 {case.max_llm_calls} 次",
+                f"实际 {calls} 次",
+            )
+        )
+
     # 5. 上限：token
     if case.max_tokens is not None and outcome.tokens:
         findings.append(

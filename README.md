@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.10.10
+## 当前版本：v0.10.11
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -546,7 +546,7 @@ python -m divana.evals --only repo-read,paper-read
 
 | 层 | 字段 | 判什么 |
 |---|---|---|
-| 轨迹 | `expect_tools` / `forbid_tools` / `max_tool_calls` / `max_calls_per_tool` | 她**做了什么** |
+| 轨迹 | `expect_tools` / `forbid_tools` / `max_tool_calls` / `max_calls_per_tool` / `max_llm_calls` | 她**做了什么** |
 | 文本 | `expect_pattern` / `check_citations` | 她**说了什么** |
 | 产物 | `expect_files` | 她**改对了没** |
 
@@ -592,8 +592,19 @@ python -m divana.evals --only repo-read,paper-read
 所以照样碰不到你真实的笔记和计划。`path` 支持 `notes/*.md` 这样的通配；匹配到多个
 文件时，只要有一个满足全部条件就算过（不然她多存一篇就会被误判）。
 
-上限（`max_tool_calls` / `max_calls_per_tool` / `max_tokens`）的口径是**防退化**，
-不是卡预算：数值按实测值留约 50% 余量，只拦住"绕了八圈"那个量级的变化。
+上限分两层，**别混着用**：
+
+- **行为指标**：`max_llm_calls`（模型调用次数）、`max_tool_calls`、`max_calls_per_tool`。
+  一次用户输入往往触发好几次模型调用（每调一次工具都要再问一次模型），所以
+  `max_llm_calls` 才是"她绕了几圈"的直接度量——稳定、可解释。**该不该挂看这几个。**
+- **成本护栏**：`max_tokens`。它会被模型推理开销（实测占 output 的 36%~75%）和输入
+  长度带得上下飘，同一条用例能差一倍，**不能拿它当行为断言**。它的数值按
+  `调用上限 × 该用例实测单次成本` 再留约 20% 余量；只调高不调低，保证它不比行为
+  上限更紧。它挂了的意思是"比最坏的合法路径还多花 20% 以上"，值得查。
+
+> 2026-09-24 的教训：这两层原来混在一个 `max_tokens` 里，于是 `plan-update` 和
+> `no-unprompted-note` 的失败看起来像"她太啰嗦"，实际是"上限卡在了两种合法行为
+> 中间"。拆开之后，绕圈由 `max_llm_calls` 精确抓，成本只负责防爆表。
 
 用例还能覆盖配置，用来造"工具挂了"的场景——不必真去搞坏一个 API key：
 

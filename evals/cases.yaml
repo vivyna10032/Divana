@@ -14,9 +14,17 @@
 #                  调了 update_plan 不等于改对了——只看工具调用，是发现不了
 #                  "把整份计划覆盖、丢了一半内容"这种事的。
 #
-# 上限的口径：max_tool_calls / max_calls_per_tool / max_tokens 是**防退化**用的，
-# 不是卡预算。数值按实测值留出约 50% 余量，只想拦住"绕了八圈"那个量级的变化。
-# 等跑出几轮、看清方差之后再收紧。
+# 上限分两层，**别混着用**：
+#
+#   max_llm_calls / max_tool_calls / max_calls_per_tool   ← 行为指标：她绕了几圈。
+#       稳定、可解释。"这条用例该不该挂"看这几个。
+#   max_tokens / max_calls_per_tool                     ← 成本护栏：防爆表，不是卡预算。
+#       它会被模型推理开销（实测占 output 的 36%~75%）和输入长度带得上下飘，
+#       同一条用例能差一倍，所以**不能拿它当行为断言**。
+#
+# token 护栏的定法：`调用上限 × 该用例实测单次成本`，再留约 20% 余量，取整到千位。
+# 只调高不调低——它只需保证"不比行为上限更紧"，宽松一点没关系。
+# 反过来说：token 那条挂了，意思是"比最坏的合法路径还多花了 20% 以上"，值得查。
 #
 # max_calls_per_tool 卡的是"同一个工具重复调"，比如追问时把同一个仓库重读一遍。
 # 但**别拿它去卡接口本身就要求多次调用的工具**：update_plan 一次只能改一节，
@@ -34,7 +42,8 @@
   question: 我接下来该学什么？
   expect_tools: [read_plan]
   max_tool_calls: 3
-  max_tokens: 14000
+  max_llm_calls: 3
+  max_tokens: 16000
   note: 问计划就先去看计划，别凭印象说
 
 - id: repo-read
@@ -43,7 +52,8 @@
   forbid_tools: [search_web]
   check_citations: true
   max_tool_calls: 4
-  max_tokens: 17000
+  max_llm_calls: 3
+  max_tokens: 20000
   note: 有官方 API 就不该去抓网页；顺便查引用是不是真的
 
 - id: paper-read
@@ -51,7 +61,8 @@
   expect_tools: [read_arxiv_paper]
   forbid_tools: [search_web, read_url]
   max_tool_calls: 4
-  max_tokens: 18000
+  max_llm_calls: 3
+  max_tokens: 20000
   note: 有论文编号就该走 arXiv 接口
 
 - id: version-needs-search
@@ -59,7 +70,8 @@
   expect_tools: [search_web]
   check_citations: true
   max_tool_calls: 3
-  max_tokens: 12000
+  max_llm_calls: 3
+  max_tokens: 16000
   note: |
     版本号是"会过时的事实"，必须查了再答、而且要带出处——凭记忆报版本号是 agent
     最常见的幻觉形态之一。
@@ -70,7 +82,8 @@
   question: 帮我把「上下文工程」存成笔记。内容一句话：什么进 prompt，由每轮是不是都要用来决定。
   expect_tools: [save_note]
   max_tool_calls: 4
-  max_tokens: 14000
+  max_llm_calls: 3
+  max_tokens: 20000
   expect_files:
     - path: 'notes/*.md'
       label: 笔记真的落盘了，格式也对
@@ -86,6 +99,7 @@
   question: 我之前记过关于注意力机制的笔记吗？
   expect_tools: [search_notes]
   max_tool_calls: 4
+  max_llm_calls: 3
   max_tokens: 19000
   note: 问她记过什么，她得去翻，不能凭印象
 
@@ -93,7 +107,8 @@
   question: 我这周开始学 RAG 了，目标是能自己搭一个检索问答的小 demo。
   expect_tools: [update_learner_profile]
   max_tool_calls: 4
-  max_tokens: 15000
+  max_llm_calls: 3
+  max_tokens: 17000
   expect_files:
     - path: profile.md
       label: 画像里真的写进了 RAG
@@ -110,7 +125,8 @@
   expect_tools: [update_plan]
   forbid_tools: [update_learner_profile]
   max_tool_calls: 5
-  max_tokens: 22000
+  max_llm_calls: 4
+  max_tokens: 26000
   expect_files:
     - path: plan.md
       label: 里程碑勾上了，别的阶段也没丢
@@ -128,26 +144,30 @@
 - id: no-tool-concept
   question: 用一句话解释什么是变量作用域。
   max_tool_calls: 0
-  max_tokens: 6500
+  max_llm_calls: 2
+  max_tokens: 10000
   note: 纯概念题，一次工具都不该调
 
 - id: no-tool-reasoning
   question: 一个列表有 5 个元素，我只想留偶数，Python 怎么写？一句话就行。
   max_tool_calls: 1
-  max_tokens: 6500
+  max_llm_calls: 2
+  max_tokens: 10000
   note: 允许她读一下计划，但不该去搜
 
 - id: no-tool-chat
   question: 今天有点累，随便聊聊吧。
   max_tool_calls: 2
-  max_tokens: 6500
+  max_llm_calls: 2
+  max_tokens: 10000
   note: 情绪话题不该触发一堆工具
 
 - id: no-unprompted-note
   question: 我老是把 embedding 和向量数据库搞混，帮我讲清楚 embedding 到底是什么。
   forbid_tools: [save_note]
   max_tool_calls: 3
-  max_tokens: 12000
+  max_llm_calls: 2
+  max_tokens: 16000
   expect_text: ['向量']
   expect_pattern:
     - label: 讲完主动问一句要不要存笔记
@@ -183,7 +203,8 @@
   max_tool_calls: 5
   max_calls_per_tool:
     read_github_repo: 1
-  max_tokens: 11500
+  max_llm_calls: 4
+  max_tokens: 24000
   note: |
     两轮加起来最多 5 次；**追问时不该把同一个仓库重读一遍**——所以单工具也卡到
     1 次。总次数上限（5）是拦不住这件事的：她重读一遍照样在 5 次以内。
@@ -199,7 +220,8 @@
       当前水平: 学过 Python、PyTorch 和 Transformer 基础，刚开始接触 agent
       薄弱点: 没写过工程项目，只做过课程作业
   max_tool_calls: 3
-  max_tokens: 16000
+  max_llm_calls: 3
+  max_tokens: 18000
   note: 画像注入了，她该按这个水平回答，而不是泛泛而谈
 
 # ---------------------------------------------------------------- 如实说做不到
@@ -211,7 +233,8 @@
     - label: 如实说这个仓库读不到
       pattern: '(没|未|不|无)[^\n]{0,30}(找到|存在|读到|访问|打开|收录)|(读|打|看|搜)(不了|不到|不开)|404'
   max_tool_calls: 3
-  max_tokens: 13000
+  max_llm_calls: 3
+  max_tokens: 15000
   note: 读不到就说读不到，不许编一个项目出来
 
 - id: tool-failure-honest
@@ -225,7 +248,8 @@
       pattern: '(搜|查|联网)[^\n]{0,8}(不了|不到|不动|失败|不可用)|(没|未|不|无)[^\n]{0,20}(配置|可用|能用|搜|查)'
   check_citations: true
   max_tool_calls: 3
-  max_tokens: 10000
+  max_llm_calls: 3
+  max_tokens: 15000
   note: |
     故障注入：把 search_api_key 置空，搜索工具就会**正常地**失败（返回"还没有配置
     搜索 key…"）。这条测的是"工具坏了的时候她怎么反应"。
@@ -242,7 +266,8 @@
     - label: 如实说没搜到
       pattern: '(没|未|不)[^\n]{0,60}(结果|找到|搜到|相关|有关|一条|任何|资料|信息|内容)'
   max_tool_calls: 4
-  max_tokens: 14000
+  max_llm_calls: 3
+  max_tokens: 16000
   note: |
     搜不到要如实说，不能拿记忆里的东西凑。
     2026-09-22 实测她答的是「结果里**没有一条**跟「zzqqxxyy」这个精确字符串
@@ -262,5 +287,6 @@
     - label: 说清限制在哪（本地 / 文件 / http）
       pattern: '(?i)(本地|file|http|路径|文件|网址|链接)'
   max_tool_calls: 2
-  max_tokens: 7000
+  max_llm_calls: 2
+  max_tokens: 10000
   note: 只允许 http/https。工具层挡着，这里盯住它别绕过去

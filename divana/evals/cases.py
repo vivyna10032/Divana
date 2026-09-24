@@ -34,6 +34,7 @@ _KNOWN_FIELDS = frozenset(
         "expect_files",
         "max_tool_calls",
         "max_calls_per_tool",
+        "max_llm_calls",
         "max_tokens",
         "check_citations",
         "note",
@@ -113,6 +114,10 @@ class Case:
     expect_files: tuple[FileExpectation, ...] = ()
     max_tool_calls: int | None = None
     max_calls_per_tool: dict[str, int] = field(default_factory=dict)
+    # 一次用户输入往往触发好几次模型调用（每次工具调用之后都要再问一次）。
+    # 这才是"她绕了几圈"的直接度量：token 会被推理开销和输入长度带得上下飘，
+    # 调用次数只跟"多跑了几轮工具"有关，稳得多。所以行为用它卡，token 只当护栏。
+    max_llm_calls: int | None = None
     max_tokens: int | None = None
     check_citations: bool = False
     note: str = ""
@@ -319,10 +324,15 @@ def parse_case(raw: Any, *, where: str = "") -> Case:
     if unknown_given:
         raise CaseError(f"{where}：given 里不认识的字段 {sorted(unknown_given)}")
 
-    for field_name in ("max_tool_calls", "max_tokens"):
+    for field_name in ("max_tool_calls", "max_llm_calls", "max_tokens"):
         value = raw.get(field_name)
-        if value is not None and not isinstance(value, int):
-            raise CaseError(f"{where}：{field_name} 要写整数")
+        if value is None:
+            continue
+        # 顺带补上非负检查：写个 -1 上去的话，每条用例都会莫名其妙地挂，
+        # 而报错信息指向的却是"她超了上限"。布尔也挡掉——YAML 里 `true` 恰好
+        # 是 int 的子类，会被当成 1 用，这种事不该悄悄发生。
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise CaseError(f"{where}：{field_name} 要写非负整数")
 
     return Case(
         id=case_id,
@@ -347,6 +357,7 @@ def parse_case(raw: Any, *, where: str = "") -> Case:
         max_calls_per_tool=_int_map(
             raw.get("max_calls_per_tool"), where=f"{where}.max_calls_per_tool"
         ),
+        max_llm_calls=raw.get("max_llm_calls"),
         max_tokens=raw.get("max_tokens"),
         check_citations=bool(raw.get("check_citations", False)),
         note=str(raw.get("note", "")),

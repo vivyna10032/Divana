@@ -187,6 +187,16 @@ class LoadCasesTest(unittest.TestCase):
             with self.assertRaises(CaseError):
                 parse_case({"id": "a", "question": "b", "max_calls_per_tool": {"x": bad}})
 
+    def test_max_llm_calls_is_parsed(self) -> None:
+        self.assertEqual(case(max_llm_calls=3).max_llm_calls, 3)
+        for bad in ("三次", -1, 1.5, True):
+            with self.assertRaises(CaseError):
+                parse_case({"id": "a", "question": "b", "max_llm_calls": bad})
+        # 老字段也享受同样的检查（以前 -1 会被默默收下）
+        for bad in (-1, True):
+            with self.assertRaises(CaseError):
+                parse_case({"id": "a", "question": "b", "max_tokens": bad})
+
     def test_given_settings_is_parsed(self) -> None:
         made = parse_case(
             {"id": "a", "question": "b", "given": {"settings": {"search_api_key": ""}}}
@@ -217,6 +227,7 @@ class LoadCasesTest(unittest.TestCase):
         cases = load_cases()
         self.assertTrue(any(item.expect_files for item in cases))
         self.assertTrue(any(item.max_calls_per_tool for item in cases))
+        self.assertTrue(all(item.max_llm_calls for item in cases))
         self.assertTrue(any(item.given_settings for item in cases))
         self.assertTrue(any(item.max_tokens for item in cases))
 
@@ -247,6 +258,31 @@ class CheckCaseTest(unittest.TestCase):
         made = case(max_tool_calls=1)
         got = outcome(tool_calls=(ToolCall("a", ""), ToolCall("b", "")))
         self.assertIn("工具调用不超过 1 次", failed_labels(check_case(made, got)))
+
+    def test_llm_call_ceiling(self) -> None:
+        """绕圈的直接度量：一次用户输入触发了几次模型调用。"""
+        made = case(max_llm_calls=3)
+        three = outcome(
+            llm_calls=(
+                LlmCall(turn=1, input_tokens=100, output_tokens=10),
+                LlmCall(turn=1, input_tokens=200, output_tokens=20),
+                LlmCall(turn=1, input_tokens=300, output_tokens=30),
+            )
+        )
+        self.assertEqual(failed_labels(check_case(made, three)), [])
+        four = outcome(
+            llm_calls=three.llm_calls
+            + (LlmCall(turn=1, input_tokens=400, output_tokens=40),)
+        )
+        self.assertIn("模型调用不超过 3 次", failed_labels(check_case(made, four)))
+
+    def test_llm_call_ceiling_falls_back_to_requests(self) -> None:
+        """老数据/手写的 Outcome 里没有逐次记录，就得退回 requests 字段。"""
+        made = case(max_llm_calls=2)
+        self.assertEqual(failed_labels(check_case(made, outcome(requests=2))), [])
+        self.assertIn(
+            "模型调用不超过 2 次", failed_labels(check_case(made, outcome(requests=3)))
+        )
 
     def test_zero_tool_calls_allowed(self) -> None:
         made = case(max_tool_calls=0)
