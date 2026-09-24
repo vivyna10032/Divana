@@ -12,11 +12,32 @@
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 
 from .storage import atomic_write
+
+# 同一个文件可能被**并发**写：SDK 把同步工具丢进线程池跑（agents/tool.py 里是
+# `asyncio.to_thread`），所以模型一次要求调两个 `update_plan`，它们就是两个线程。
+# 而 `write_section` 是"读整份 → 改一节 → 写整份"，不加锁的话两个写者各自基于
+# 同一份旧快照写回去，后写的那个把先写的改动整个盖掉——**丢失更新**。
+# 2026-09-24 就是这么丢掉"里程碑打勾"的：工具返回了成功，文件里却没有。
+#
+# 锁按文件路径分，不同文件互不阻塞。写只发生在几次工具调用里，开销可忽略。
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _LOCKS_GUARD:
+        lock = _LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _LOCKS[key] = lock
+        return lock
 
 _HEADING = re.compile(r"^##\s+(?P<name>\S.*?)\s*$")
 # 正好两个 # 的标题（### 不算）
@@ -109,7 +130,8 @@ class SectionedMarkdown:
         if self.path.exists():
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(self.template, encoding="utf-8")
+        # 走原子写：两个线程同时第一次创建时，别让谁读到半截模板
+        atomic_write(self.path, self.template)
 
     def read(self) -> str:
         """读全文。文件还没建就返回模板，不落盘。"""
@@ -168,13 +190,16 @@ class SectionedMarkdown:
             )
 
         self.ensure_exists()
-        lines = self.read().splitlines()
-        for name, start, end in iter_sections(lines):
-            if name == section:
-                # 标题下面统一留一个空行 + 正文 + 一个空行，和下一个标题隔开
-                lines[start + 1 : end] = ["", *content.splitlines(), ""]
-                atomic_write(self.path, "\n".join(lines) + "\n")
-                return
+        # 读和写必须在同一个锁里——只锁写不锁读的话，"读到的旧快照"照样会把
+        # 别人的改动盖掉。
+        with _lock_for(self.path):
+            lines = self.read().splitlines()
+            for name, start, end in iter_sections(lines):
+                if name == section:
+                    # 标题下面统一留一个空行 + 正文 + 一个空行，和下一个标题隔开
+                    lines[start + 1 : end] = ["", *content.splitlines(), ""]
+                    atomic_write(self.path, "\n".join(lines) + "\n")
+                    return
 
         raise self.error_cls(f"文件里没有「{section}」这一节")
 

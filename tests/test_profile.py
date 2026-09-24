@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from divana.profile import (
     ProfileStore,
 )
 from divana.markdown_store import iter_sections
+from divana.storage import atomic_write
 
 
 class ProfileStoreTest(unittest.TestCase):
@@ -110,6 +112,81 @@ class ProfileStoreTest(unittest.TestCase):
         store = self.store()
         store.write_section("学习习惯", "喜欢先看例子再看定义。")
         self.assertTrue(store.read().endswith("\n"))
+
+
+class ConcurrentWriteTest(unittest.TestCase):
+    """并发写：这不是假想——SDK 把同步工具丢进线程池跑（`asyncio.to_thread`）。
+
+    2026-09-24 的真实事故：模型一次要求调两个 `update_plan`，两个线程各自
+    "读整份 → 改一节 → 写整份"，后写的那个把先写的改动整个盖掉。**工具返回了
+    "已更新"，文件里却没有**——计划里"里程碑打勾"就是这么丢的。
+    同一批实验还撞出过 WinError 32 和读文件读成 UnicodeDecodeError 两种情况。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / "vault" / "profile.md"
+
+    def _run_both(self, *calls) -> None:
+        """同时跑几个写操作，并把线程里的异常收回来。
+
+        线程里抛异常不会传给主线程——不收的话，这类测试会"假装通过"。
+        """
+        errors: list[BaseException] = []
+
+        def guard(call) -> None:
+            try:
+                call()
+            except BaseException as exc:  # noqa: BLE001 - 就是要全收回来
+                errors.append(exc)
+
+        threads = [threading.Thread(target=guard, args=(call,)) for call in calls]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        if errors:
+            raise AssertionError(f"并发写抛异常了：{errors!r}")
+
+    def test_parallel_section_writes_keep_both_changes(self) -> None:
+        store = ProfileStore(self.path)
+        store.ensure_exists()
+        store.write_section("目标", "旧目标")
+        store.write_section("薄弱点", "旧薄弱点")
+
+        self._run_both(
+            lambda: store.write_section("目标", "找一个 agent 实习"),
+            lambda: store.write_section("薄弱点", "没写过工程项目"),
+        )
+
+        text = store.read()
+        self.assertIn("找一个 agent 实习", text)
+        self.assertIn("没写过工程项目", text)
+
+    def test_parallel_writes_never_corrupt_the_file(self) -> None:
+        """写坏比丢更新更糟：一读就 UnicodeDecodeError，她的记忆就没了。"""
+        store = ProfileStore(self.path)
+        store.ensure_exists()
+        for _ in range(40):
+            self._run_both(
+                lambda: store.write_section("目标", "找一个 agent 实习"),
+                lambda: store.write_section("薄弱点", "没写过工程项目"),
+            )
+            text = store.read()  # 读不出来就会炸
+            self.assertIn("找一个 agent 实习", text)
+            self.assertIn("没写过工程项目", text)
+
+    def test_atomic_write_never_leaves_a_mixed_file(self) -> None:
+        """临时文件名重复的话，两个写者会互相踩——结果可能是半截内容。"""
+        path = Path(self._tmp.name) / "x.md"
+        first, second = "甲" * 400, "乙" * 400
+        for _ in range(40):
+            self._run_both(
+                lambda: atomic_write(path, first),
+                lambda: atomic_write(path, second),
+            )
+            self.assertIn(path.read_text(encoding="utf-8"), (first, second))
 
 
 if __name__ == "__main__":
