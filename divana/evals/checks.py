@@ -48,6 +48,30 @@ class Step:
 
 
 @dataclass(frozen=True)
+class LlmCall:
+    """一次模型调用。
+
+    一个用户轮次里常常有好几次——**每次工具调用之后都要再问一次模型**。所以
+    "跑了 1 轮"和"调了 5 次模型"是两回事，钱要按后者算。
+
+    `tools` 是这次调用**要求调用**的工具（并行调用时可能多个，通常一个）：
+    用来回答"最贵的那一次，她当时在干什么"。
+    """
+
+    turn: int
+    input_tokens: int
+    output_tokens: int
+    tools: tuple[str, ...] = ()
+    # 推理模型的"思考"也算 output、也要计费。有些服务商不报这个数（那就是 0），
+    # 报的时候就单独列出来——不然 output 看着大，你会以为是话多。
+    reasoning_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass(frozen=True)
 class Outcome:
     """一次运行的原始结果。检查器只看这个对象。"""
 
@@ -58,6 +82,9 @@ class Outcome:
     requests: int = 0
     files: tuple["FileSnapshot", ...] = ()
     steps: tuple["Step", ...] = ()
+    llm_calls: tuple[LlmCall, ...] = ()
+    input_tokens: int = 0
+    output_tokens: int = 0
 
     @property
     def tool_names(self) -> tuple[str, ...]:

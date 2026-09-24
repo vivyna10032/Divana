@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +24,55 @@ TOOL_ARGS_CHARS = 400
 TOOL_OUTPUT_CHARS = 900
 REPLY_CHARS = 2000
 FILE_CHARS = 1500
+
+# 估算 token 时按字符类型折算。DeepSeek 自己给的经验值：1 个汉字 ≈ 0.6 token，
+# 1 个英文字符 ≈ 0.3 token。
+_CJK_PER_CHAR = 0.6
+_OTHER_PER_CHAR = 0.3
+_CJK_RANGES = (
+    (0x3000, 0x303F),  # 中日韩标点
+    (0x3040, 0x30FF),  # 假名
+    (0x3400, 0x4DBF),  # 汉字扩展 A
+    (0x4E00, 0x9FFF),  # 基本汉字
+    (0xF900, 0xFAFF),  # 兼容汉字
+    (0xFF00, 0xFFEF),  # 全角字符
+)
+
+
+def _is_cjk(char: str) -> bool:
+    point = ord(char)
+    return any(low <= point <= high for low, high in _CJK_RANGES)
+
+
+def _display_width(text: str) -> int:
+    """终端里占几格（汉字算两格），用来把表格对齐。"""
+    return sum(2 if _is_cjk(char) else 1 for char in text)
+
+
+def _pad(text: str, width: int) -> str:
+    return text + " " * max(0, width - _display_width(text))
+
+
+def estimate_tokens(text: str) -> int:
+    """粗估一段文本占多少 token。
+
+    为什么要估：API 只报**整次调用**的用量，"到底哪一段吃掉了上下文"——某个工具的
+    返回、最后那段回答——问不出来，只能按字符折。所以这是个**估算，别当账目用**：
+    真账看 API 报的 input / output。
+    """
+    if not text:
+        return 0
+    weight = sum(_CJK_PER_CHAR if _is_cjk(char) else _OTHER_PER_CHAR for char in text)
+    return max(1, math.ceil(weight))
+
+
+def token_totals(outcome: Outcome) -> tuple[int, int, int]:
+    """(input, output, 合计)。逐次调用的记录最准，没有就退回汇总字段。"""
+    if outcome.llm_calls:
+        prompt = sum(call.input_tokens for call in outcome.llm_calls)
+        completion = sum(call.output_tokens for call in outcome.llm_calls)
+        return prompt, completion, prompt + completion
+    return outcome.input_tokens, outcome.output_tokens, outcome.tokens
 
 
 @dataclass(frozen=True)
@@ -59,6 +109,9 @@ def summarize(
             "tool_calls": list(result.outcome.tool_names),
             "requests": result.outcome.requests,
             "tokens": result.outcome.tokens,
+            "input_tokens": result.outcome.input_tokens,
+            "output_tokens": result.outcome.output_tokens,
+            "llm_calls": len(result.outcome.llm_calls),
             "failed_checks": [item.label for item in result.failed],
             "detail": [item.detail for item in result.failed if item.detail],
         }
@@ -126,10 +179,12 @@ def render_report(summary: dict, diff: list[str] | None = None) -> str:
 
     costs = [info["tokens"] for info in cases.values() if info["tokens"]]
     if costs:
+        asked = sum(info.get("input_tokens", 0) for info in cases.values())
+        answered = sum(info.get("output_tokens", 0) for info in cases.values())
         lines.append("")
         lines.append(
-            f"token：合计 {sum(costs)}，单条平均 {sum(costs) // len(costs)}"
-            "（这个数字本身也是指标）"
+            f"token：合计 {sum(costs)}（input {asked} / output {answered}），"
+            f"单条平均 {sum(costs) // len(costs)}（这个数字本身也是指标）"
         )
     return "\n".join(lines)
 
@@ -168,6 +223,127 @@ def _bullet(label: str, value: str) -> list[str]:
     out = [f"- {label}：{rows[0]}".rstrip()]
     out.extend(f"    {row}".rstrip() for row in rows[1:])
     return out
+
+
+def render_token_breakdown(result: CaseResult) -> str:
+    """token 花在哪：每次模型调用、每个工具返回、最后那段回答。
+
+    触发这次改动的场景：评测因为"超过 token 上限"挂掉，可报告里只有一个总数——
+    看不出是输入本身太长、绕了太多圈，还是某个工具返回太胖。所以这里把它拆开，
+    并**把最贵的那一次模型调用标出来**。
+    """
+    outcome = result.outcome
+    prompt, completion, total = token_totals(outcome)
+    tools = [step for step in outcome.steps if step.kind == "tool"]
+    tool_chars = sum(len(step.output) for step in tools)
+
+    lines = [
+        "## token 明细",
+        "",
+        f"- 模型调用 **{len(outcome.llm_calls) or outcome.requests} 次**"
+        f"　input {prompt}　output {completion}　合计 **{total}**",
+        f"- 工具返回合计 {tool_chars} 字符"
+        f"（约 {estimate_tokens(''.join(step.output for step in tools))} token，"
+        f"共 {len(tools)} 次调用）",
+        f"- 最终回答 {len(outcome.text)} 字符（约 {estimate_tokens(outcome.text)} token）",
+    ]
+
+    calls = outcome.llm_calls
+    if calls:
+        dearest = max(calls, key=lambda call: call.total_tokens)
+        share = round(100 * dearest.total_tokens / total) if total else 0
+        doing = "、".join(dearest.tools) or "出最终回答"
+        lines.append(
+            f"- **最贵的一次：第 {calls.index(dearest) + 1} 次调用**"
+            f"（第 {dearest.turn} 轮）input {dearest.input_tokens} + "
+            f"output {dearest.output_tokens} = {dearest.total_tokens}，占 {share}%"
+            f"——这一次她做的是：{doing}"
+        )
+        thinking = sum(call.reasoning_tokens for call in calls)
+        if thinking:
+            lines.append(
+                f"- 其中推理（思考）tokens：{thinking}"
+                "——这部分按 output 计费，说话少不代表不花钱"
+            )
+        lines += [
+            "",
+            "| # | 轮次 | input | output | 其中推理 | 合计 | 占合计 | 这次调用之后 |",
+            "|---|------|------:|-------:|--------:|-----:|-------:|--------------|",
+        ]
+        for index, call in enumerate(calls, start=1):
+            rate = round(100 * call.total_tokens / total) if total else 0
+            mark = " ← **最贵**" if call is dearest else ""
+            what = "、".join(call.tools) if call.tools else "出最终回答"
+            lines.append(
+                f"| {index} | 第 {call.turn} 轮 | {call.input_tokens} | "
+                f"{call.output_tokens} | {call.reasoning_tokens} | "
+                f"{call.total_tokens} | {rate}% | {what}{mark} |"
+            )
+
+    if tools:
+        lines += [
+            "",
+            "工具返回的体量（估算）：",
+            "",
+            "| 轮次 | 工具 | 字符 | 约 token |",
+            "|------|------|-----:|--------:|",
+        ]
+        turn = 0
+        for step in outcome.steps:
+            if step.kind == "turn":
+                turn += 1
+            elif step.kind == "tool":
+                lines.append(
+                    f"| 第 {turn} 轮 | `{step.name}` | {len(step.output)} | "
+                    f"{estimate_tokens(step.output)} |"
+                )
+    return "\n".join(lines)
+
+
+def render_token_table(
+    results: list[CaseResult], cases: dict[str, Case] | None = None
+) -> str:
+    """跑完之后的 token 分布表——一眼看出哪条贵、贵在 input 还是绕圈。"""
+    known = cases or {}
+    rows = []
+    for result in results:
+        prompt, completion, total = token_totals(result.outcome)
+        calls = result.outcome.llm_calls
+        dearest = max(calls, key=lambda call: call.total_tokens) if calls else None
+        share = round(100 * dearest.total_tokens / total) if dearest and total else 0
+        tool_chars = sum(
+            len(step.output) for step in result.outcome.steps if step.kind == "tool"
+        )
+        cap = known[result.case_id].max_tokens if result.case_id in known else None
+        rows.append(
+            (result, prompt, completion, total, len(calls), share, tool_chars, cap)
+        )
+
+    rows.sort(key=lambda row: row[3], reverse=True)
+    lines = [
+        "token 分布（按合计从大到小）：",
+        "",
+        f"{_pad('用例', 24)}{_pad('调用', 6)}{_pad('input', 9)}"
+        f"{_pad('output', 8)}{_pad('合计', 9)}{_pad('最贵一次', 10)}"
+        f"{_pad('工具返回', 11)}上限",
+    ]
+    for result, prompt, completion, total, calls, share, tool_chars, cap in rows:
+        note = " ← 超上限" if cap and total > cap else ""
+        lines.append(
+            f"{_pad(result.case_id, 24)}{_pad(str(calls), 6)}{_pad(str(prompt), 9)}"
+            f"{_pad(str(completion), 8)}{_pad(str(total), 9)}"
+            f"{_pad(f'{share}%', 10)}{_pad(f'{tool_chars} 字', 11)}"
+            f"{cap if cap else '—'}{note}"
+        )
+
+    if rows:
+        everything = sum(row[3] for row in rows)
+        lines.append("")
+        lines.append(
+            f"合计 {everything} tokens　平均每条 {everything // len(rows)}"
+            f"　（input 占 {round(100 * sum(r[1] for r in rows) / everything)}%）"
+        )
+    return "\n".join(lines)
 
 
 def render_trajectory(
@@ -213,6 +389,8 @@ def render_trajectory(
             if item.detail:
                 lines.append(f"    - 实际：{item.detail}")
         lines.append("")
+
+    lines += [render_token_breakdown(result), ""]
 
     lines += ["## 每一轮发生了什么", ""]
     turn = 0

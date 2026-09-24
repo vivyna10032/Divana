@@ -27,6 +27,7 @@ from .report import (
     compare,
     load_baseline,
     render_report,
+    render_token_table,
     save_baseline,
     summarize,
     write_trajectory,
@@ -145,6 +146,12 @@ def main() -> None:
 
     print()
     print(render_report(summary, diff))
+
+    # token 花在哪：每条一行。明细（每次模型调用、每个工具返回的体量）在轨迹文件里
+    # ——用 --trajectory all 就能全拿到。
+    if results:
+        print()
+        print(render_token_table(results, cases_by_id))
 
     if written:
         print()

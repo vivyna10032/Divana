@@ -18,7 +18,7 @@ from ..config import Settings
 from ..context import build_context
 from ..session import open_session
 from .cases import Case
-from .checks import FileSnapshot, Outcome, Step, ToolCall, check_case
+from .checks import FileSnapshot, LlmCall, Outcome, Step, ToolCall, check_case
 from .report import CaseResult
 
 
@@ -40,6 +40,51 @@ def _snapshot(vault: Path) -> tuple[FileSnapshot, ...]:
                 )
             )
     return tuple(shots)
+
+
+def _llm_calls(result, turn: int) -> list[LlmCall]:
+    """把一次 `Runner.run` 里的**每一次**模型调用拆出来。
+
+    为什么要拆：一次用户输入往往触发好几次模型调用（每次工具调用之后都要再问一次），
+    只看总数看不出"钱花在哪一次"。
+
+    `result.raw_responses` 里每个元素对应一次真实调用，且自带 `usage`——这是最直接的
+    来源。极少数适配器不填它，那就退回去读聚合用量里的每次请求记录
+    （`Usage.add()` 会把它们攒在 `request_usage_entries` 里）。
+    """
+    made: list[LlmCall] = []
+    for response in getattr(result, "raw_responses", None) or []:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            continue
+        made.append(
+            LlmCall(
+                turn=turn,
+                input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+                output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+                reasoning_tokens=int(
+                    getattr(
+                        getattr(usage, "output_tokens_details", None),
+                        "reasoning_tokens",
+                        0,
+                    )
+                    or 0
+                ),
+            )
+        )
+    if made:
+        return made
+
+    usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
+    for entry in getattr(usage, "request_usage_entries", None) or []:
+        made.append(
+            LlmCall(
+                turn=turn,
+                input_tokens=int(getattr(entry, "input_tokens", 0) or 0),
+                output_tokens=int(getattr(entry, "output_tokens", 0) or 0),
+            )
+        )
+    return made
 
 
 async def _run_once(settings: Settings, case: Case) -> Outcome:
@@ -71,22 +116,33 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
         session = open_session(f"eval-{case.id}", db_path=root / "eval.db")
         steps: list[Step] = []
         outputs: list[str] = []
+        llm_calls: list[LlmCall] = []
         text = ""
-        tokens = requests = 0
+        # 这里是**累计**，不是覆盖。以前每轮都覆盖，多轮用例只报了最后一轮的钱——
+        # 成本被少算，而 max_tokens 又是拿这个数去比的，等于那条用例只卡了最后一轮。
+        tokens = requests = input_tokens = output_tokens = 0
         try:
-            for turn in case.turns:
+            for number, turn in enumerate(case.turns, start=1):
                 steps.append(Step(kind="turn", text=turn))
                 result = await Runner.run(agent, turn, session=session, context=context)
+                llm_calls.extend(_llm_calls(result, number))
                 for item in result.new_items:
                     if isinstance(item, ToolCallItem):
                         raw = item.raw_item
+                        name = str(getattr(raw, "name", "") or "?")
                         steps.append(
                             Step(
                                 kind="tool",
-                                name=str(getattr(raw, "name", "") or "?"),
+                                name=name,
                                 arguments=str(getattr(raw, "arguments", "") or ""),
                             )
                         )
+                        # 工具是"上一次模型调用"要求调的，挂回那一次——这样报告里能
+                        # 对上"最贵的那一步，她当时在干什么"。
+                        if llm_calls and llm_calls[-1].turn == number:
+                            llm_calls[-1] = replace(
+                                llm_calls[-1], tools=llm_calls[-1].tools + (name,)
+                            )
                     elif isinstance(item, ToolCallOutputItem):
                         output = str(getattr(item, "output", "") or "")
                         outputs.append(output)
@@ -101,8 +157,10 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
                 steps.append(Step(kind="reply", text=text))
                 usage = getattr(result.context_wrapper, "usage", None)
                 if usage is not None:
-                    tokens = int(getattr(usage, "total_tokens", 0) or 0)
-                    requests = int(getattr(usage, "requests", 0) or 0)
+                    requests += int(getattr(usage, "requests", 0) or 0)
+                    input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+                    output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+                    tokens += int(getattr(usage, "total_tokens", 0) or 0)
         finally:
             session.close()
 
@@ -122,6 +180,9 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
         requests=requests,
         files=files,
         steps=tuple(steps),
+        llm_calls=tuple(llm_calls),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 
@@ -129,9 +190,13 @@ async def run_case(settings: Settings, case: Case, *, attempts: int = 1) -> Case
     """跑一条用例，可以重复几次看稳定性。
 
     报告里留的是**失败那一次**的断言（而不是最后一次的）——排查问题时更有用。
+    既然断言取自那一次，**成本和轨迹也必须取自同一次**：不然一份轨迹里会出现
+    "成本 5335"和"实际 13468"打架的情况（前者最后一次、后者第一次失败），
+    而排查成本问题时最容易被这个误导。
     """
     outcome: Outcome | None = None
     findings = []
+    failed_outcome: Outcome | None = None
     passed_attempts = 0
 
     for _ in range(max(1, attempts)):
@@ -141,11 +206,15 @@ async def run_case(settings: Settings, case: Case, *, attempts: int = 1) -> Case
             passed_attempts += 1
         elif not findings:
             findings = current
+            failed_outcome = outcome
 
     if outcome is None:  # attempts<=0 时兜底，正常不会走到
         raise RuntimeError("没有跑任何一次")
     if not findings:
         findings = check_case(case, outcome)
+    else:
+        # 有失败记录：整份结果都用那一次的数据，跟断言对齐。
+        outcome = failed_outcome or outcome
 
     return CaseResult(
         case_id=case.id,

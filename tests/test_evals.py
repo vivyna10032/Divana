@@ -11,11 +11,13 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 from divana.evals.cases import Case, CaseError, load_cases, parse_case
 from divana.evals.checks import (
     FileSnapshot,
     Finding,
+    LlmCall,
     Outcome,
     Step,
     ToolCall,
@@ -25,11 +27,15 @@ from divana.evals.checks import (
 from divana.evals.report import (
     CaseResult,
     compare,
+    estimate_tokens,
     load_baseline,
     render_report,
+    render_token_breakdown,
+    render_token_table,
     render_trajectory,
     save_baseline,
     summarize,
+    token_totals,
     write_trajectory,
 )
 from divana.notes import render_note
@@ -560,6 +566,111 @@ class TrajectoryTest(unittest.TestCase):
         )
         self.assertEqual(path.name, "demo.md")
         self.assertIn("demo", path.read_text(encoding="utf-8"))
+
+
+class TokenTest(unittest.TestCase):
+    """"超上限"类失败的排查入口：别只看总数，要看钱花在哪一次。"""
+
+    def call(self, turn: int, prompt: int, out: int, tools=()) -> LlmCall:
+        return LlmCall(turn=turn, input_tokens=prompt, output_tokens=out, tools=tools)
+
+    def test_estimate_tokens_counts_chinese_heavier_than_latin(self) -> None:
+        # DeepSeek 的经验值：1 个汉字 ≈ 0.6 token，1 个英文字符 ≈ 0.3
+        self.assertEqual(estimate_tokens(""), 0)
+        self.assertEqual(estimate_tokens("中文"), 2)  # 1.2 → 2
+        self.assertEqual(estimate_tokens("abcd"), 2)  # 1.2 → 2
+        # 同样是 4 个字符：汉字约 2.4 → 3，英文约 1.2 → 2
+        self.assertGreater(estimate_tokens("中文中文"), estimate_tokens("abcd"))
+
+    def test_totals_prefer_the_per_call_records(self) -> None:
+        """逐次调用的记录在，就该信它——汇总字段可能是老的/错的。"""
+        got = Outcome(
+            text="x",
+            tokens=999,
+            llm_calls=(self.call(1, 100, 20), self.call(1, 300, 40)),
+        )
+        self.assertEqual(token_totals(got), (400, 60, 460))
+
+    def test_totals_fall_back_to_the_summary(self) -> None:
+        got = Outcome(text="x", tokens=500, input_tokens=400, output_tokens=100)
+        self.assertEqual(token_totals(got), (400, 100, 500))
+
+    def test_breakdown_marks_the_most_expensive_call(self) -> None:
+        result = CaseResult(
+            case_id="demo",
+            outcome=Outcome(
+                text="最终回答",
+                steps=(
+                    Step(kind="turn", text="问"),
+                    Step(kind="tool", name="read_plan", output="计划正文"),
+                ),
+                llm_calls=(
+                    self.call(1, 100, 10, ("read_plan",)),
+                    self.call(1, 900, 90),
+                ),
+            ),
+            findings=(),
+            attempts=1,
+            passed_attempts=0,
+        )
+        text = render_token_breakdown(result)
+        self.assertIn("模型调用 **2 次**", text)
+        self.assertIn("input 1000", text)
+        self.assertIn("最贵的一次：第 2 次调用", text)
+        self.assertIn("read_plan", text)  # 第一次调用之后调了什么，也要能看到
+        self.assertIn("工具返回合计 4 字符", text)
+        self.assertIn("最终回答 4 字符", text)
+
+    def test_table_flags_cases_over_their_cap(self) -> None:
+        def made(case_id: str, tokens: int, cap: int):
+            made_case = parse_case({"id": case_id, "question": "q", "max_tokens": cap})
+            result = CaseResult(
+                case_id=case_id,
+                outcome=Outcome(
+                    text="x", tokens=tokens, input_tokens=tokens, output_tokens=0
+                ),
+                findings=(),
+                attempts=1,
+                passed_attempts=1,
+            )
+            return made_case, result
+
+        cheap_case, cheap = made("cheap", 100, 500)
+        pricey_case, pricey = made("pricey", 900, 500)
+        table = render_token_table(
+            [cheap, pricey], {"cheap": cheap_case, "pricey": pricey_case}
+        )
+        self.assertIn("超上限", table)
+        self.assertLess(table.index("pricey"), table.index("cheap"))  # 贵的排前面
+        self.assertNotIn("cheap ←", table)
+
+    def test_one_run_can_hold_several_model_calls(self) -> None:
+        """一次 Runner.run 里有几次模型调用，取决于她中间调了几次工具。"""
+        try:
+            from divana.evals.runner import _llm_calls
+        except ImportError:  # 没装 agent 栈就跳过
+            self.skipTest("没有 agents，跳过")
+
+        usage = SimpleNamespace(input_tokens=100, output_tokens=10)
+        result = SimpleNamespace(raw_responses=[SimpleNamespace(usage=usage)] * 3)
+        calls = _llm_calls(result, 2)
+        self.assertEqual([(call.turn, call.input_tokens) for call in calls], [(2, 100)] * 3)
+
+    def test_llm_calls_falls_back_to_the_aggregate_entries(self) -> None:
+        try:
+            from divana.evals.runner import _llm_calls
+        except ImportError:
+            self.skipTest("没有 agents，跳过")
+
+        entries = [SimpleNamespace(input_tokens=7, output_tokens=3)]
+        result = SimpleNamespace(
+            raw_responses=[],
+            context_wrapper=SimpleNamespace(
+                usage=SimpleNamespace(request_usage_entries=entries)
+            ),
+        )
+        calls = _llm_calls(result, 1)
+        self.assertEqual([(call.input_tokens, call.output_tokens) for call in calls], [(7, 3)])
 
 
 class ReportTest(unittest.TestCase):
