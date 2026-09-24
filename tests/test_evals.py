@@ -17,6 +17,7 @@ from divana.evals.checks import (
     FileSnapshot,
     Finding,
     Outcome,
+    Step,
     ToolCall,
     check_case,
     urls_in,
@@ -26,8 +27,10 @@ from divana.evals.report import (
     compare,
     load_baseline,
     render_report,
+    render_trajectory,
     save_baseline,
     summarize,
+    write_trajectory,
 )
 from divana.notes import render_note
 
@@ -408,6 +411,93 @@ class CheckCaseTest(unittest.TestCase):
         self.assertTrue(
             any("里程碑" in item for item in failed_labels(check_case(made, got)))
         )
+
+
+class TrajectoryTest(unittest.TestCase):
+    """失败轨迹：报告里看不出来的东西，得靠它。"""
+
+    def make(self, *, ok: bool = False, steps=(), files=()):
+        made = case(expect_tools=["read_plan"], max_tool_calls=1)
+        findings = (Finding(ok, "调用过 read_plan", "" if ok else "实际调用：update_plan"),)
+        result = CaseResult(
+            case_id=made.id,
+            outcome=Outcome(text="她说的话", steps=tuple(steps), files=tuple(files)),
+            findings=findings,
+            attempts=1,
+            passed_attempts=1 if ok else 0,
+        )
+        return made, result
+
+    def test_shows_the_tool_order_with_arguments_and_output(self) -> None:
+        made, result = self.make(
+            steps=(
+                Step(kind="turn", text="我接下来该学什么？"),
+                Step(
+                    kind="tool",
+                    name="read_plan",
+                    arguments='{"x": 1}',
+                    output="## 现在的位置",
+                ),
+                Step(kind="reply", text="你该先学 agent 循环"),
+            )
+        )
+        text = render_trajectory(made, result)
+        self.assertIn("### 第 1 轮", text)
+        self.assertIn("**你**：我接下来该学什么？", text)
+        self.assertIn("**调用 `read_plan`**", text)
+        self.assertIn("## 现在的位置", text)
+        self.assertIn("**她说**", text)
+        self.assertIn("你该先学 agent 循环", text)
+
+    def test_lists_the_failed_checks(self) -> None:
+        made, result = self.make()
+        text = render_trajectory(made, result)
+        self.assertIn("## 挂了哪几条", text)
+        self.assertIn("调用过 read_plan", text)
+        self.assertIn("实际调用：update_plan", text)
+
+    def test_passing_case_does_not_list_failures(self) -> None:
+        made, result = self.make(ok=True, steps=(Step(kind="turn", text="问"),))
+        text = render_trajectory(made, result)
+        self.assertNotIn("## 挂了哪几条", text)
+        self.assertIn("- 结果：过（1/1 次通过）", text)
+
+    def test_shows_the_files_left_behind(self) -> None:
+        """文件类断言挂了（里程碑没勾），得能直接看到文件最后长什么样。"""
+        made, result = self.make(
+            files=(FileSnapshot("plan.md", "### 阶段一\n- [ ] 没勾上\n"),)
+        )
+        text = render_trajectory(made, result)
+        self.assertIn("## 跑完之后的文件", text)
+        self.assertIn("`plan.md`（", text)
+        self.assertIn("- [ ] 没勾上", text)
+
+    def test_says_so_when_there_is_no_trajectory(self) -> None:
+        made, result = self.make()
+        self.assertIn("这次运行没有留下轨迹", render_trajectory(made, result))
+
+    def test_long_output_is_clipped_but_says_how_long_it_was(self) -> None:
+        made, result = self.make(
+            steps=(Step(kind="tool", name="read_url", output="啊" * 3000),)
+        )
+        self.assertIn("截断，原文 3000 字", render_trajectory(made, result))
+
+    def test_head_records_model_and_commit(self) -> None:
+        """commit 记错的话，回头就找不到"那版代码"了。"""
+        made, result = self.make()
+        text = render_trajectory(made, result, model="deepseek-x", commit="abc123")
+        self.assertIn("deepseek-x", text)
+        self.assertIn("abc123", text)
+
+    def test_writes_one_file_per_case(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        made, result = self.make()
+        path = write_trajectory(
+            made, result, directory=Path(tmp.name), model="m", commit="c"
+        )
+        self.assertEqual(path.name, "demo.md")
+        self.assertIn("demo", path.read_text(encoding="utf-8"))
 
 
 class ReportTest(unittest.TestCase):

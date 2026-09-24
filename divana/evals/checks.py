@@ -25,6 +25,25 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class Step:
+    """轨迹里的一步。`kind` 决定哪些字段有意义：
+
+    - `turn`  ：用户这一轮的输入，看 `text`
+    - `tool`  ：一次工具调用，看 `name` / `arguments` / `output`
+    - `reply` ：她这一轮的最终回答，看 `text`
+
+    为什么要按顺序记下来：报告里只有"哪条断言挂了"，看不出**她绕到哪去了**。
+    排查"同一个工具调了三次""读了不该读的东西"这类退化，必须看轨迹。
+    """
+
+    kind: str
+    text: str = ""
+    name: str = ""
+    arguments: str = ""
+    output: str = ""
+
+
+@dataclass(frozen=True)
 class Outcome:
     """一次运行的原始结果。检查器只看这个对象。"""
 
@@ -34,6 +53,7 @@ class Outcome:
     tokens: int = 0
     requests: int = 0
     files: tuple["FileSnapshot", ...] = ()
+    steps: tuple["Step", ...] = ()
 
     @property
     def tool_names(self) -> tuple[str, ...]:

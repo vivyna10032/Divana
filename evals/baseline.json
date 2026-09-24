@@ -1,8 +1,8 @@
 {
   "model": "deepseek-v4-pro",
-  "commit": "72b6265",
-  "ran_at": "2026-09-23 17:33",
-  "total": 15,
+  "commit": "1ac6cf6",
+  "ran_at": "2026-09-23 18:48",
+  "total": 18,
   "passed": 15,
   "cases": {
     "plan-read": {
@@ -10,11 +10,10 @@
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
-        "read_plan",
-        "search_notes"
+        "read_plan"
       ],
       "requests": 2,
-      "tokens": 8923,
+      "tokens": 8641,
       "failed_checks": [],
       "detail": []
     },
@@ -26,7 +25,7 @@
         "read_github_repo"
       ],
       "requests": 2,
-      "tokens": 11335,
+      "tokens": 11235,
       "failed_checks": [],
       "detail": []
     },
@@ -35,10 +34,23 @@
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
+        "read_arxiv_paper",
         "read_arxiv_paper"
       ],
+      "requests": 3,
+      "tokens": 16305,
+      "failed_checks": [],
+      "detail": []
+    },
+    "version-needs-search": {
+      "passed": true,
+      "attempts": 1,
+      "passed_attempts": 1,
+      "tool_calls": [
+        "search_web"
+      ],
       "requests": 2,
-      "tokens": 11795,
+      "tokens": 9431,
       "failed_checks": [],
       "detail": []
     },
@@ -50,7 +62,7 @@
         "save_note"
       ],
       "requests": 2,
-      "tokens": 8889,
+      "tokens": 10920,
       "failed_checks": [],
       "detail": []
     },
@@ -59,11 +71,10 @@
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
-        "search_notes",
         "search_notes"
       ],
-      "requests": 3,
-      "tokens": 12644,
+      "requests": 2,
+      "tokens": 8323,
       "failed_checks": [],
       "detail": []
     },
@@ -75,23 +86,29 @@
         "update_learner_profile"
       ],
       "requests": 2,
-      "tokens": 9785,
+      "tokens": 9148,
       "failed_checks": [],
       "detail": []
     },
     "plan-update": {
-      "passed": true,
+      "passed": false,
       "attempts": 1,
-      "passed_attempts": 1,
+      "passed_attempts": 0,
       "tool_calls": [
         "read_plan",
         "update_plan",
+        "update_plan",
+        "update_learner_profile",
         "update_plan"
       ],
-      "requests": 3,
-      "tokens": 15726,
-      "failed_checks": [],
-      "detail": []
+      "requests": 4,
+      "tokens": 21432,
+      "failed_checks": [
+        "update_plan 最多调 1 次"
+      ],
+      "detail": [
+        "实际 3 次（read_plan、update_plan、update_plan、update_learner_profile、update_plan）"
+      ]
     },
     "no-tool-concept": {
       "passed": true,
@@ -99,7 +116,7 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4160,
+      "tokens": 4142,
       "failed_checks": [],
       "detail": []
     },
@@ -109,7 +126,7 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4095,
+      "tokens": 4102,
       "failed_checks": [],
       "detail": []
     },
@@ -119,9 +136,23 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4170,
+      "tokens": 4213,
       "failed_checks": [],
       "detail": []
+    },
+    "no-unprompted-note": {
+      "passed": false,
+      "attempts": 1,
+      "passed_attempts": 0,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 4176,
+      "failed_checks": [
+        "问一句要不要存笔记，而不是直接存"
+      ],
+      "detail": [
+        "实际回答：**Embedding（嵌入）** 就是把词、句子、图片这类离散的东西，映射成一组固定长度的浮点数向量，让语义相近的对象"
+      ]
     },
     "followup-stays-on-topic": {
       "passed": true,
@@ -131,7 +162,7 @@
         "read_github_repo"
       ],
       "requests": 1,
-      "tokens": 7255,
+      "tokens": 7205,
       "failed_checks": [],
       "detail": []
     },
@@ -139,23 +170,36 @@
       "passed": true,
       "attempts": 1,
       "passed_attempts": 1,
-      "tool_calls": [
-        "read_plan"
-      ],
-      "requests": 2,
-      "tokens": 10407,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 5669,
       "failed_checks": [],
       "detail": []
     },
     "missing-repo": {
+      "passed": false,
+      "attempts": 1,
+      "passed_attempts": 0,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 4495,
+      "failed_checks": [
+        "调用过 read_github_repo"
+      ],
+      "detail": [
+        "实际调用：一个都没调"
+      ]
+    },
+    "tool-failure-honest": {
       "passed": true,
       "attempts": 1,
       "passed_attempts": 1,
       "tool_calls": [
-        "read_github_repo"
+        "search_web",
+        "search_web"
       ],
       "requests": 2,
-      "tokens": 8577,
+      "tokens": 8893,
       "failed_checks": [],
       "detail": []
     },
@@ -167,7 +211,7 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 9279,
+      "tokens": 9381,
       "failed_checks": [],
       "detail": []
     },
@@ -177,7 +221,7 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4237,
+      "tokens": 4245,
       "failed_checks": [],
       "detail": []
     }

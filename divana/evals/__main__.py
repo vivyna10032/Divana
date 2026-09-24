@@ -5,6 +5,10 @@
 
 之后每改一次 prompt 或工具：
     python -m divana.evals            # 会自动和 baseline 对比，只看变化
+
+没过的那几条会把**完整轨迹**写成 markdown（`evals/trajectory/`）——哪一轮、
+调了什么工具、工具返回了什么、她最后说了什么、跑完文件长什么样。改 prompt 之前
+先看轨迹，比只看"哪条断言挂了"有用得多。
 """
 
 from __future__ import annotations
@@ -19,7 +23,14 @@ from dotenv import load_dotenv
 
 from ..config import Settings, setup_agents_sdk
 from .cases import load_cases
-from .report import compare, load_baseline, render_report, save_baseline, summarize
+from .report import (
+    compare,
+    load_baseline,
+    render_report,
+    save_baseline,
+    summarize,
+    write_trajectory,
+)
 from .runner import run_all
 
 
@@ -68,6 +79,12 @@ def main() -> None:
     parser.add_argument("--cases", default="", help="用例文件路径")
     parser.add_argument("--baseline", default="", help="baseline 文件路径")
     parser.add_argument("--save", action="store_true", help="把这次结果存成 baseline")
+    parser.add_argument(
+        "--trajectory",
+        choices=("failed", "all", "off"),
+        default="failed",
+        help="把完整轨迹写成 markdown：默认只写没过的（failed）",
+    )
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -84,6 +101,14 @@ def main() -> None:
     baseline_path = Path(args.baseline) if args.baseline else None
     print(f"跑 {len(cases)} 条用例，每条 {args.attempts} 次。\n")
     started = datetime.now()
+    cases_by_id = {case.id: case for case in cases}
+    commit = _git_commit()
+    written: list[Path] = []
+
+    def wants_trajectory(result) -> bool:
+        if args.trajectory == "all":
+            return True
+        return args.trajectory == "failed" and not result.passed
 
     def show(result) -> None:
         mark = "过" if result.passed else "挂"
@@ -91,6 +116,19 @@ def main() -> None:
             f"  [{mark}] {result.case_id}　{result.passed_attempts}/{result.attempts}　"
             f"工具 {len(result.outcome.tool_calls)} 次　{result.outcome.tokens} tokens"
         )
+        if not result.passed:
+            # 先把工具序列打出来：一眼能看出"绕圈/重复调用"这类退化。
+            chain = " → ".join(call.name for call in result.outcome.tool_calls)
+            print(f"        工具轨迹：{chain or '（一次都没调）'}")
+        if wants_trajectory(result):
+            path = write_trajectory(
+                cases_by_id[result.case_id],
+                result,
+                model=settings.model,
+                commit=commit,
+            )
+            written.append(path)
+            print(f"        完整轨迹：{path}")
 
     results = asyncio.run(
         run_all(settings, cases, attempts=args.attempts, on_result=show)
@@ -99,7 +137,7 @@ def main() -> None:
     summary = summarize(
         results,
         model=settings.model,
-        commit=_git_commit(),
+        commit=commit,
         ran_at=started.strftime("%Y-%m-%d %H:%M"),
     )
     baseline = load_baseline(baseline_path)
@@ -107,6 +145,11 @@ def main() -> None:
 
     print()
     print(render_report(summary, diff))
+
+    if written:
+        print()
+        print(f"轨迹写了 {len(written)} 份，在 {written[0].parent}/")
+        print("（同名会被这次覆盖；这是运行产物，不进版本控制）")
 
     if args.save:
         saved = save_baseline(summary, baseline_path)

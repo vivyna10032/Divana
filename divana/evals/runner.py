@@ -18,7 +18,7 @@ from ..config import Settings
 from ..context import build_context
 from ..session import open_session
 from .cases import Case
-from .checks import FileSnapshot, Outcome, ToolCall, check_case
+from .checks import FileSnapshot, Outcome, Step, ToolCall, check_case
 from .report import CaseResult
 
 
@@ -69,25 +69,36 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
 
         agent = build_agent(settings, context)
         session = open_session(f"eval-{case.id}", db_path=root / "eval.db")
-        calls: list[ToolCall] = []
+        steps: list[Step] = []
         outputs: list[str] = []
         text = ""
         tokens = requests = 0
         try:
             for turn in case.turns:
+                steps.append(Step(kind="turn", text=turn))
                 result = await Runner.run(agent, turn, session=session, context=context)
                 for item in result.new_items:
                     if isinstance(item, ToolCallItem):
                         raw = item.raw_item
-                        calls.append(
-                            ToolCall(
+                        steps.append(
+                            Step(
+                                kind="tool",
                                 name=str(getattr(raw, "name", "") or "?"),
                                 arguments=str(getattr(raw, "arguments", "") or ""),
                             )
                         )
                     elif isinstance(item, ToolCallOutputItem):
-                        outputs.append(str(getattr(item, "output", "") or ""))
+                        output = str(getattr(item, "output", "") or "")
+                        outputs.append(output)
+                        # 工具的返回通常紧跟在它那次调用后面。挂到**最近的、还没有
+                        # 返回的那次调用**上，而不是简单地挂在上一步——万一 SDK 把
+                        # 返回和调用拆开了，这么写也不会错位。
+                        for index in range(len(steps) - 1, -1, -1):
+                            if steps[index].kind == "tool" and not steps[index].output:
+                                steps[index] = replace(steps[index], output=output)
+                                break
                 text = str(result.final_output or "")
+                steps.append(Step(kind="reply", text=text))
                 usage = getattr(result.context_wrapper, "usage", None)
                 if usage is not None:
                     tokens = int(getattr(usage, "total_tokens", 0) or 0)
@@ -100,11 +111,17 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
 
     return Outcome(
         text=text,
-        tool_calls=tuple(calls),
+        # 工具列表从轨迹里推出来，不另存一份——两份数据总有一天会对不上。
+        tool_calls=tuple(
+            ToolCall(name=step.name, arguments=step.arguments)
+            for step in steps
+            if step.kind == "tool"
+        ),
         tool_outputs=tuple(outputs),
         tokens=tokens,
         requests=requests,
         files=files,
+        steps=tuple(steps),
     )
 
 
