@@ -35,7 +35,24 @@ from reportlab.platypus import (
 from reportlab.platypus.tableofcontents import TableOfContents
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from content import BLOCKS  # noqa: E402
+from content import BLOCKS as CORE_BLOCKS  # noqa: E402
+from content_v010 import CHAPTERS as EXTRA_CHAPTERS  # noqa: E402
+
+
+def _with_new_chapters(blocks: list, extra: list) -> list:
+    """把 v0.8~v0.10 那两章插在「面试速查」之前。
+
+    为什么不直接写进 content.py：那两章要插在**中间**（面试速查和"接下来"要留在最后），
+    而 content.py 是 600 多行中文数据，插错位置很难看出来。单独一步、单独一个文件，
+    改完还能对着目录核一遍。
+    """
+    for index, (kind, payload) in enumerate(blocks):
+        if kind == "h1" and payload.startswith("第 8 章"):
+            return [*blocks[:index], *extra, *blocks[index:]]
+    return [*blocks, *extra]
+
+
+BLOCKS = _with_new_chapters(CORE_BLOCKS, EXTRA_CHAPTERS)
 
 FONT_DIR = Path("C:/Windows/Fonts")
 OUT_PATH = Path("output/pdf/Divana-Agent-学习手册.pdf")
@@ -57,6 +74,16 @@ pdfmetrics.registerFont(TTFont("MonoB", str(FONT_DIR / "consolab.ttf")))
 pdfmetrics.registerFontFamily(
     "CJK", normal="CJK", bold="CJKB", italic="CJK", boldItalic="CJKB"
 )
+
+# 代码块里会出现中文：示例输出、注释都有。Consolas 没有中文字形，中文会**静默消失**
+# （第一版就丢过一整行 [回归]/[修好]，看起来只是"空了几行"）。MS Gothic 是等宽的，
+# 中英文都在；系统里万一没有这种字体，就退回 Consolas（纯 ASCII 的代码照样好看）。
+_CODE_FONT = "Mono"
+if (FONT_DIR / "msgothic.ttc").exists():
+    pdfmetrics.registerFont(
+        TTFont("CJKMono", str(FONT_DIR / "msgothic.ttc"), subfontIndex=0)
+    )
+    _CODE_FONT = "CJKMono"
 
 # ---------------------------------------------------------------- 样式
 
@@ -155,7 +182,7 @@ S = {
     ),
     "code": ParagraphStyle(
         "code",
-        fontName="Mono",
+        fontName=_CODE_FONT,
         fontSize=8.4,
         leading=12.6,
         textColor=colors.HexColor("#111827"),
