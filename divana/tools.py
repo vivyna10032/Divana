@@ -60,7 +60,12 @@ def update_learner_profile(
         ctx.context.profile.write_section(section, content)
     except ProfileError as exc:
         return f"更新失败：{exc}"
-    return f"已更新「{section}」。记得用一句话告诉用户你记了什么。"
+    # 返回的这句话**位置最靠后**，对模型的影响很大。所以别只写"记得告诉用户你记了什么"
+    # ——那样它容易把"报账"当成这一轮的正文。要说清这只是顺带的，正事是回答问题。
+    return (
+        f"已更新画像的「{section}」（这是顺带记的一笔）。"
+        "回到他问的问题上：先用一句话带过你记了什么，然后把该讲的讲完。"
+    )
 
 
 @function_tool
@@ -110,7 +115,7 @@ def save_note(
         note = ctx.context.notes.save(title, body, tags)
     except NoteError as exc:
         return f"没存成：{exc}"
-    return f"已存成 {note.path}。记得告诉用户文件在哪。"
+    return f"已存成 {note.path}。回到他问的问题上，顺口告诉用户文件在哪就行。"
 
 
 @function_tool
@@ -195,7 +200,10 @@ def update_plan(
         ctx.context.plan.write_section(section, content)
     except PlanError as exc:
         return f"更新失败：{exc}"
-    return f"已更新计划的「{section}」。记得告诉用户你改了什么。"
+    return (
+        f"已更新计划的「{section}」（这是顺带改的）。"
+        "回到他问的问题上：用一句话带过你改了什么，然后继续。"
+    )
 
 
 @function_tool

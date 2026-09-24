@@ -17,6 +17,10 @@ from .cases import Case, FileExpectation
 # URL 后面常跟着中文标点，抠出来之后要截掉
 _URL = re.compile(r"https?://[^\s)\]<>\"'，。；、]+")
 
+# 报告里回显"实际回答"时留多少字。原来是 60——太短了，长回答里真正出问题的那句
+# 常常在 60 字之后，看起来就像"被截断了"。完整内容去 evals/trajectory/ 看。
+PREVIEW_CHARS = 200
+
 
 @dataclass(frozen=True)
 class ToolCall:
@@ -210,7 +214,7 @@ def check_case(case: Case, outcome: Outcome) -> list[Finding]:
             Finding(
                 bool(hit),
                 f"回答里出现 {'/'.join(case.expect_any)} 之一",
-                "" if hit else f"实际回答：{outcome.text[:60]}",
+                "" if hit else f"实际回答：{outcome.text[:PREVIEW_CHARS]}",
             )
         )
 
@@ -223,7 +227,9 @@ def check_case(case: Case, outcome: Outcome) -> list[Finding]:
         hit = re.search(item.pattern, outcome.text) is not None
         label = item.label or f"回答符合 {item.pattern}"
         findings.append(
-            Finding(hit, label, "" if hit else f"实际回答：{outcome.text[:60]}")
+            Finding(
+                hit, label, "" if hit else f"实际回答：{outcome.text[:PREVIEW_CHARS]}"
+            )
         )
 
     # 9. 引用是不是真的来自工具结果

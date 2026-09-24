@@ -426,6 +426,43 @@ class CheckCaseTest(unittest.TestCase):
             "read_github_repo 最多调 1 次", failed_labels(check_case(made, got))
         )
 
+    def test_note_case_accepts_the_wording_that_used_to_fail(self) -> None:
+        """2026-09-24 她那次的问句，得被这条用例接住。
+
+        她写的是「要不要把这套「embedding 是什么」存成一篇笔记？」——原来的正则
+        只允许"要不要"和"存"之间隔 14 个字符，这句隔了 18 个，于是被判成"没问"。
+        **那是尺子写窄了，不是她没说。**
+        """
+        made = next(item for item in load_cases() if item.id == "no-unprompted-note")
+        asked = (
+            "embedding 就是把语义映射成向量。"
+            "要不要把这套「embedding 是什么」存成一篇笔记？下次复习可以直接翻。"
+        )
+        got = outcome(text=asked, tool_calls=(ToolCall("update_learner_profile", "{}"),))
+        labels = failed_labels(check_case(made, got))
+        self.assertFalse(any("要不要存笔记" in item for item in labels))
+        # 记画像不该算错：prompt 明说"反复卡在哪"就该记进画像
+        self.assertFalse(any("update_learner_profile" in item for item in labels))
+
+    def test_note_case_fails_when_she_only_reports_bookkeeping(self) -> None:
+        """她那次真正的问题：只说了"我记进画像了"和"要不要存笔记"，问题没答。
+
+        `expect_text` 就是为这个加的——光有"有回答"（非空）是拦不住的。
+        """
+        made = next(item for item in load_cases() if item.id == "no-unprompted-note")
+        got = outcome(
+            text="我把你反复搞混的这一点记进了画像的「薄弱点」。要不要存成一篇笔记？",
+            tool_calls=(ToolCall("update_learner_profile", "{}"),),
+        )
+        self.assertIn("回答里提到「向量」", failed_labels(check_case(made, got)))
+
+    def test_failure_detail_shows_enough_of_the_answer(self) -> None:
+        """明细里 60 字太短了，长回答里出问题的那句常在后面，看着像"被截断"。"""
+        made = case(expect_pattern="^绝不会出现的$")
+        got = outcome(text="前" * 120 + "关键的一句在这里")
+        detail = next(item.detail for item in check_case(made, got) if not item.ok)
+        self.assertIn("关键的一句在这里", detail)
+
     def test_plan_update_case_requires_the_checkmark(self) -> None:
         made = next(item for item in load_cases() if item.id == "plan-update")
         got = outcome(
