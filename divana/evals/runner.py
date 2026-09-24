@@ -42,6 +42,27 @@ def _snapshot(vault: Path) -> tuple[FileSnapshot, ...]:
     return tuple(shots)
 
 
+def _requested_tools(response) -> tuple[str, ...]:
+    """这一次模型调用**要求调用**了哪些工具。
+
+    直接看它自己的输出里有没有 `function_call`，而不是从事件流里猜——猜的话会把
+    工具挂到错误的那次调用上。2026-09-24 就踩过：一次 run 里的 4 个工具全被挂到
+    最后一次调用上（因为 `raw_responses` 是一次性灌进列表的，`[-1]` 永远是最后一次）。
+    那次数据的用处是证明了归因错了——"这一次调用之后"整列都不可信。
+    """
+    names: list[str] = []
+    for item in getattr(response, "output", None) or []:
+        if isinstance(item, dict):
+            kind = item.get("type", "")
+            name = item.get("name", "")
+        else:
+            kind = getattr(item, "type", "")
+            name = getattr(item, "name", "")
+        if kind == "function_call":
+            names.append(str(name or "?"))
+    return tuple(names)
+
+
 def _llm_calls(result, turn: int) -> list[LlmCall]:
     """把一次 `Runner.run` 里的**每一次**模型调用拆出来。
 
@@ -62,6 +83,7 @@ def _llm_calls(result, turn: int) -> list[LlmCall]:
                 turn=turn,
                 input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
                 output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+                tools=_requested_tools(response),
                 reasoning_tokens=int(
                     getattr(
                         getattr(usage, "output_tokens_details", None),
@@ -137,12 +159,6 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
                                 arguments=str(getattr(raw, "arguments", "") or ""),
                             )
                         )
-                        # 工具是"上一次模型调用"要求调的，挂回那一次——这样报告里能
-                        # 对上"最贵的那一步，她当时在干什么"。
-                        if llm_calls and llm_calls[-1].turn == number:
-                            llm_calls[-1] = replace(
-                                llm_calls[-1], tools=llm_calls[-1].tools + (name,)
-                            )
                     elif isinstance(item, ToolCallOutputItem):
                         output = str(getattr(item, "output", "") or "")
                         outputs.append(output)

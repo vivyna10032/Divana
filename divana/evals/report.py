@@ -260,9 +260,10 @@ def render_token_breakdown(result: CaseResult) -> str:
             f"——这一次她做的是：{doing}"
         )
         thinking = sum(call.reasoning_tokens for call in calls)
-        if thinking:
+        if thinking and completion:
             lines.append(
                 f"- 其中推理（思考）tokens：{thinking}"
+                f"（占 output 的 {round(100 * thinking / completion)}%）"
                 "——这部分按 output 计费，说话少不代表不花钱"
             )
         lines += [

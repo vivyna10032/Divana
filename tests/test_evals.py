@@ -672,6 +672,56 @@ class TokenTest(unittest.TestCase):
         calls = _llm_calls(result, 1)
         self.assertEqual([(call.input_tokens, call.output_tokens) for call in calls], [(7, 3)])
 
+    def test_tools_are_attributed_to_the_call_that_asked_for_them(self) -> None:
+        """2026-09-24 踩过：一次 run 里的工具全被挂到最后一次调用上。
+
+        原因是从事件流里猜（`raw_responses` 是一次性灌进来的，`[-1]` 永远是最后
+        一个）。现在改成看每次调用**自己的输出**里有没有 `function_call`。
+        """
+        try:
+            from divana.evals.runner import _llm_calls
+        except ImportError:
+            self.skipTest("没有 agents，跳过")
+
+        def response(tools):
+            output = [
+                SimpleNamespace(type="function_call", name=name) for name in tools
+            ]
+            return SimpleNamespace(
+                output=output,
+                usage=SimpleNamespace(input_tokens=100, output_tokens=10),
+            )
+
+        result = SimpleNamespace(
+            raw_responses=[
+                response(["read_plan"]),
+                response(["update_plan", "update_plan"]),
+                response([]),
+            ]
+        )
+        calls = _llm_calls(result, 1)
+        self.assertEqual(
+            [call.tools for call in calls],
+            [("read_plan",), ("update_plan", "update_plan"), ()],
+        )
+
+    def test_tools_can_come_from_dict_shaped_output(self) -> None:
+        try:
+            from divana.evals.runner import _llm_calls
+        except ImportError:
+            self.skipTest("没有 agents，跳过")
+
+        usage = SimpleNamespace(input_tokens=1, output_tokens=1)
+        result = SimpleNamespace(
+            raw_responses=[
+                SimpleNamespace(
+                    output=[{"type": "function_call", "name": "save_note"}],
+                    usage=usage,
+                )
+            ]
+        )
+        self.assertEqual(_llm_calls(result, 1)[0].tools, ("save_note",))
+
 
 class ReportTest(unittest.TestCase):
     def result(self, case_id: str, *, ok: bool, tokens: int = 100) -> CaseResult:
