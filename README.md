@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.10.4
+## 当前版本：v0.10.5
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -534,16 +534,27 @@ python -m divana.evals --only repo-read,paper-read
 ```yaml
 - id: plan-update
   expect_tools: [update_plan]
-  max_calls_per_tool:
-    update_plan: 1                    # 单工具次数：prompt 要求"一次改完"
+  forbid_tools: [update_learner_profile]   # 改计划就只是改计划
   expect_files:
     - path: plan.md
       contains: ['[x] 自己写一个最小 agent', '阶段一']
 ```
 
+`max_calls_per_tool` 也有，但它只该用来卡"**同一个工具重复调**"——比如追问时把同一个
+仓库重读一遍（总次数上限 5 是拦不住这件事的）：
+
+```yaml
+- id: followup-stays-on-topic
+  max_calls_per_tool:
+    read_github_repo: 1
+```
+
 为什么要有第三层：**调了 `update_plan` 不等于改对了**。她完全可能把整份计划覆盖、
-丢了一半内容——只看工具调用是发现不了的。这是 2026-09-22 加这层时的真实理由：
-那条用例当时"调了 2 次 `update_plan`"照样通过，因为只卡了总数上限。
+丢了一半内容——只看工具调用是发现不了的。
+
+> 这里踩过一个坑，值得单独记：一开始给 `plan-update` 卡的是"`update_plan` 最多调 1 次"，
+> 结果**错怪了她**——`update_plan` 的接口一次只能改一节，要动两节就得调两次。
+> **断言和接口打架的时候，该改的是断言**（或者去改接口，别去改 prompt 逼她绕）。
 
 `expect_files` 读的是**临时 vault**（跑完趁临时目录还在，先拍一张文件快照），
 所以照样碰不到你真实的笔记和计划。`path` 支持 `notes/*.md` 这样的通配；匹配到多个

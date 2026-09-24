@@ -382,10 +382,14 @@ class CheckCaseTest(unittest.TestCase):
         got = outcome(files=(FileSnapshot("notes/a.md", "## 擅自存的"),))
         self.assertIn("文件 notes/*.md 不该被写出来", failed_labels(check_case(made, got)))
 
-    def test_per_tool_limit_catches_the_second_update_plan(self) -> None:
-        """2026-09-22 的真实形态：总数没超，但 update_plan 被调了两次。
+    def test_plan_update_forbids_touching_the_profile(self) -> None:
+        """2026-09-23 的真实形态：改计划时顺手调了 update_learner_profile。
 
         这条用的就是真实的用例定义，以后谁把断言删了这里会亮。
+
+        注意这里**不**卡 `update_plan` 的次数：接口一次只能改一节（见
+        tools.py 的签名），要动两节就得调两次——那不是绕圈。曾经卡过
+        "最多 1 次"，那是错怪了她。
         """
         made = next(item for item in load_cases() if item.id == "plan-update")
         got = outcome(
@@ -394,12 +398,33 @@ class CheckCaseTest(unittest.TestCase):
                 ToolCall("read_plan", "{}"),
                 ToolCall("update_plan", '{"section": "路线图"}'),
                 ToolCall("update_plan", '{"section": "下一步"}'),
+                ToolCall("update_learner_profile", '{"section": "当前水平"}'),
             ),
-            files=(FileSnapshot("plan.md", "### 阶段一：agent 基础\n- [x] 自己写一个最小 agent\n"),),
+            files=(
+                FileSnapshot(
+                    "plan.md", "### 阶段一：agent 基础\n- [x] 自己写一个最小 agent\n"
+                ),
+            ),
         )
         labels = failed_labels(check_case(made, got))
-        self.assertTrue(any("update_plan 最多调 1 次" in item for item in labels))
-        self.assertFalse(any("里程碑" in item for item in labels))  # 文件那部分是对的
+        self.assertIn("没有调用 update_learner_profile", labels)
+        # 改了两次 update_plan 不该被判错，文件那部分也是对的
+        self.assertFalse(any("update_plan" in item for item in labels))
+        self.assertFalse(any("里程碑" in item for item in labels))
+
+    def test_followup_case_bans_rereading_the_same_repo(self) -> None:
+        """追问时把整个仓库重读一遍：总次数上限拦不住它。"""
+        made = next(item for item in load_cases() if item.id == "followup-stays-on-topic")
+        got = outcome(
+            text="它的核心概念是 handoff",
+            tool_calls=(
+                ToolCall("read_github_repo", '{"repo": "openai/openai-agents-python"}'),
+                ToolCall("read_github_repo", '{"repo": "openai/openai-agents-python"}'),
+            ),
+        )
+        self.assertIn(
+            "read_github_repo 最多调 1 次", failed_labels(check_case(made, got))
+        )
 
     def test_plan_update_case_requires_the_checkmark(self) -> None:
         made = next(item for item in load_cases() if item.id == "plan-update")
