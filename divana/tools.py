@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Literal
 
 from agents import RunContextWrapper, Tool, function_tool
+from pydantic import BaseModel
 
 from .context import DivanaContext
 from .fetch import (
@@ -32,6 +33,25 @@ ProfileSection = Literal["目标", "当前水平", "已掌握", "薄弱点", "�
 
 # 计划的可写章节
 PlanSection = Literal["现在的位置", "下一步", "路线图", "复盘记录"]
+
+
+class PlanUpdate(BaseModel):
+    """要改的一节：章节名 + 这一节的完整新内容。
+
+    为什么用模型而不是 `dict[str, str]`：openai-agents 默认给工具参数开 **strict**
+    JSON Schema，而 strict 不允许"开放对象"（`additionalProperties` 不是 false
+    就直接报错）。`dict[str, str]` 生成的正好是 `{"additionalProperties": {...}}`，
+    所以一用就炸——而且是**在 import 工具的那一刻**炸，平时改完代码看不出来。
+    写成模型之后每个字段都是声明过的，strict 才过得去。
+
+    （2026-09-25 踩过：v0.11.0 第一版用 dict，评测一开就报
+    "additionalProperties should not be set for object types"。自检也补上了这条，
+    见 scripts/check_env.py。）
+    """
+
+    section: PlanSection
+    content: str
+
 
 # read_note 一次最多返回多少字符。笔记是要进上下文的，不能想读多少读多少。
 NOTES_READ_CHARS = 4000
@@ -179,28 +199,31 @@ def read_plan(ctx: RunContextWrapper[DivanaContext]) -> str:
 @function_tool
 def update_plan(
     ctx: RunContextWrapper[DivanaContext],
-    updates: dict[PlanSection, str],
+    updates: list[PlanUpdate],
 ) -> str:
     """更新学习计划的一节或多节。
 
     什么时候用：你和用户商量出了一个方向，或者他说某件事学会了／暂时不学了。
 
-    **要动几节，就在这一次调用里全写上**：updates 里放几条就改几节。每多调一次工具，
+    **要动几节，就在这一次调用里全写上**：updates 里放几项就改几节。每多调一次工具，
     整段上下文都要重发一遍，又慢又贵——所以别改一节调一次。
 
     注意每一节都是**整体替换**：改之前先 read_plan，把这一节里仍然成立的内容
     一起写进去，否则会丢。
 
     Args:
-        updates: {章节名: 该节的完整新内容}。可写的章节只有这四个：现在的位置、
-            下一步、路线图、复盘记录。内容是 markdown，用短句；没做的写 `- [ ]`，
-            做完的写 `- [x]`。例：{"路线图": "### 阶段一…\n- [x] 做完了",
-            "现在的位置": "刚做完阶段一。"}
+        updates: 要改的每一节，每项写清 section（章节名）和 content（这一节的完整
+            新内容）。可写的章节只有这四个：现在的位置、下一步、路线图、复盘记录。
+            content 是 markdown，用短句；没做的写 `- [ ]`，做完的写 `- [x]`。
+            例：[{"section": "路线图", "content": "### 阶段一…\n- [x] 做完了"},
+            {"section": "现在的位置", "content": "刚做完阶段一。"}]
     """
     if not updates:
-        return "没给要改的内容：updates 里至少写一节，比如 {\"现在的位置\": \"刚做完阶段一。\"}"
+        return "没给要改的内容：updates 里至少写一项，比如 section=现在的位置。"
 
-    written, failed = ctx.context.plan.write_sections(updates)
+    written, failed = ctx.context.plan.write_sections(
+        {item.section: item.content for item in updates}
+    )
     if failed and not written:
         return "一节都没改成：" + "；".join(f"「{name}」{why}" for name, why in failed)
 

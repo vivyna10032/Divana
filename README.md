@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.11.0
+## 当前版本：v0.11.1
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -91,6 +91,10 @@ python -m scripts.check_env
 
 它会告诉你当前跑的是哪个 Python、是不是项目的 `.venv`、依赖装没装、`.env` 里的 key 读到没有。
 最后一行是结论，有问题的项会编号列出来。
+
+它还会**真的构造一遍工具定义**——这一步能抓住一类很隐蔽的错误：openai-agents 默认给
+工具参数开 strict JSON Schema，参数类型写得太自由（比如用 `dict`）会在定义工具的那一刻
+就抛错，平时看不出来，一跑就是"启动/评测报错"。改完 `tools.py` 顺手跑一下这个检查。
 
 **二、模型通不通**（要联网，会花一点 token）：
 
@@ -307,7 +311,7 @@ HTML 必须被转义"这条安全断言。跟 Python 那边把纯逻辑和框架
 | --- | --- | --- |
 | `update_learner_profile` | 更新画像的某一节 | `vault/profile.md` |
 | `read_plan` | 看当前的学习计划 | `vault/plan.md` |
-| `update_plan` | 更新计划的一节或多节（`updates` 是 {章节: 新内容} 的表） | `vault/plan.md` |
+| `update_plan` | 更新计划的一节或多节（`updates` 是一个列表，每项写 section + content） | `vault/plan.md` |
 | `search_web` | 联网查证 | 搜索服务商 |
 | `save_note` | 把一个概念存成笔记 | `vault/notes/` |
 | `search_notes` | 翻自己的笔记（传 `*` = 列出全部） | `vault/notes/` |

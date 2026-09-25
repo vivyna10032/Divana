@@ -63,7 +63,7 @@ def read_pyvenv_cfg(key: str) -> str:
 
 def check_interpreter() -> None:
     """最关键的一条：现在这个 python 是不是项目自己的。"""
-    print("[1/4] 当前解释器")
+    print("[1/5] 当前解释器")
     show("路径", sys.executable)
     show("版本", sys.version.split()[0])
     show("环境目录", sys.prefix)
@@ -85,7 +85,7 @@ def check_interpreter() -> None:
 
 def check_venv_origin() -> None:
     """venv 是"寄生"在某个基础解释器上的，那一位不见了 venv 就废了。"""
-    print("\n[2/4] 本项目 .venv 的来历")
+    print("\n[2/5] 本项目 .venv 的来历")
     cfg_state = path_state(PYVENV_CFG)
     if cfg_state != "存在":
         if cfg_state == "读不到":
@@ -108,7 +108,7 @@ def check_venv_origin() -> None:
 
 
 def check_dependencies() -> None:
-    print("\n[3/4] 依赖")
+    print("\n[3/5] 依赖")
     for package, module in DEPENDENCIES.items():
         try:
             found = find_spec(module) is not None
@@ -149,7 +149,7 @@ def load_env() -> None:
 
 
 def check_config() -> None:
-    print("\n[4/4] 配置")
+    print("\n[4/5] 配置")
     env_state = path_state(ENV_FILE)
     if env_state == "不存在":
         show(".env", f"{ENV_FILE}（不存在）")
@@ -194,6 +194,47 @@ def check_config() -> None:
     )
 
 
+def check_tools() -> None:
+    """工具定义能不能建起来——这一步会真的构造一遍工具。
+
+    为什么值得单独检查：openai-agents 默认给工具参数开 **strict** JSON Schema，
+    而 strict 不允许"开放对象"（`additionalProperties` 不是 false 就直接报错）。
+    也就是说参数类型写得太自由（比如 `dict[str, str]`）会在**定义工具的那一刻**抛错
+    ——平时改完代码看不出来，一跑就是"启动/评测报错"。
+
+    2026-09-25 踩过一次：为了省一轮模型调用，把 update_plan 的参数改成 dict，
+    评测一开就报 "additionalProperties should not be set for object types"。
+    这个检查不联网、不花钱、一秒钟出结果——改完工具签名顺手跑一下。
+    """
+    print("\n[5/5] 工具定义")
+    try:
+        has_agents = find_spec("agents") is not None
+    except (ImportError, ValueError):
+        has_agents = False
+    if not has_agents:
+        print("  -> 没装 openai-agents，这项跳过（上面已经报过了）")
+        return
+
+    try:
+        from divana.tools import build_tools
+
+        tools = build_tools()
+    except Exception as exc:  # noqa: BLE001 - 自检脚本要把异常收成结论，不能崩
+        show("构造工具", f"失败：{type(exc).__name__}: {exc}")
+        problems.append(
+            "工具定义建不起来。最常见的原因是参数类型太自由——strict JSON Schema "
+            "不允许开放对象（比如 dict），换成列表加模型就行；上面那行报错会指出是哪个工具"
+        )
+        return
+
+    show("工具数", str(len(tools)))
+    for tool in tools:
+        name = getattr(tool, "name", "?")
+        schema = getattr(tool, "params_json_schema", None) or {}
+        fields = sorted((schema.get("properties") or {}).keys())
+        show(f"  {name}", "、".join(fields) if fields else "（无参数）")
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         try:  # Windows 控制台默认不是 UTF-8，不改的话中文会花掉
@@ -206,6 +247,7 @@ def main() -> int:
     check_venv_origin()
     check_dependencies()
     check_config()
+    check_tools()
 
     print("\n" + "-" * 48)
     if not problems:

@@ -434,7 +434,11 @@ class CheckCaseTest(unittest.TestCase):
         made = next(item for item in load_cases() if item.id == "plan-update")
         calls = (
             ToolCall("read_plan", "{}"),
-            ToolCall("update_plan", '{"updates": {"路线图": "…- [x] …", "现在的位置": "…"}}'),
+            ToolCall(
+                "update_plan",
+                '{"updates": [{"section": "路线图", "content": "…- [x] …"},'
+                ' {"section": "现在的位置", "content": "…"}]}',
+            ),
             ToolCall("update_learner_profile", '{"section": "已掌握"}'),
         )
         files = (
