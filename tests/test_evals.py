@@ -424,36 +424,45 @@ class CheckCaseTest(unittest.TestCase):
         got = outcome(files=(FileSnapshot("notes/a.md", "## 擅自存的"),))
         self.assertIn("文件 notes/*.md 不该被写出来", failed_labels(check_case(made, got)))
 
-    def test_plan_update_allows_recording_the_progress(self) -> None:
-        """他说"我把 X 做完了"——那正是画像规则里"已经掌握什么"该记的信息。
+    def test_plan_update_in_one_call_is_the_good_shape(self) -> None:
+        """接口改对之后，"同一个工具只调 1 次"这条**曾经错怪过她的**断言真的成立了。
 
-        这条用例被**错怪过两次**，两次都是断言/规则和别处打架：
-        · 卡 `update_plan` 次数——可接口一次只能改一节，要动两节就得调两次。
-        · 卡 `update_learner_profile`——可 prompt 自己两条规则打架（画像那节说要记，
-          计划那节说别记）。她按哪条做都会违反另一条。
-        现在两条都不卡，成本交给 `max_llm_calls`。
+        这条用例被错怪过三次：卡 update_plan 次数（那时接口一次只能改一节）、
+        卡 update_learner_profile（prompt 自己两条规则打架）、卡里程碑（并发写丢数据）。
+        v0.11 把 update_plan 改成一次能传多节，第一条才从错变成对。
         """
         made = next(item for item in load_cases() if item.id == "plan-update")
-        calls = (ToolCall("read_plan", "{}"),
-                 ToolCall("update_plan", '{"section": "路线图"}'),
-                 ToolCall("update_plan", '{"section": "下一步"}'),
-                 ToolCall("update_learner_profile", '{"section": "已掌握"}'))
+        calls = (
+            ToolCall("read_plan", "{}"),
+            ToolCall("update_plan", '{"updates": {"路线图": "…- [x] …", "现在的位置": "…"}}'),
+            ToolCall("update_learner_profile", '{"section": "已掌握"}'),
+        )
         files = (
             FileSnapshot("plan.md", "### 阶段一：agent 基础\n- [x] 自己写一个最小 agent\n"),
         )
         three = tuple(LlmCall(turn=1, input_tokens=1, output_tokens=1) for _ in range(3))
 
+        # 改画像是允许的（用户说的正是"已经掌握什么"），一次 update_plan 改两节也可以
         ok = outcome(text="改好了", tool_calls=calls, llm_calls=three, files=files)
         self.assertEqual(failed_labels(check_case(made, ok)), [])
 
-        # 但"绕了几圈"仍然卡着：上限 4，这里 5
-        five = outcome(
+        # 但拆成两次调用仍然要挂——这正是接口现在能避免的绕圈
+        split = outcome(
             text="改好了",
-            tool_calls=calls,
-            llm_calls=three + tuple(LlmCall(turn=1, input_tokens=1, output_tokens=1) for _ in range(2)),
+            tool_calls=(calls[0], calls[1], calls[1], calls[2]),
+            llm_calls=three,
             files=files,
         )
-        self.assertIn("模型调用不超过 4 次", failed_labels(check_case(made, five)))
+        self.assertIn("update_plan 最多调 1 次", failed_labels(check_case(made, split)))
+
+        # 模型调用次数也卡着：上限 3，这里 4
+        four = outcome(
+            text="改好了",
+            tool_calls=calls,
+            llm_calls=three + (LlmCall(turn=1, input_tokens=1, output_tokens=1),),
+            files=files,
+        )
+        self.assertIn("模型调用不超过 3 次", failed_labels(check_case(made, four)))
 
     def test_followup_case_bans_rereading_the_same_repo(self) -> None:
         """追问时把整个仓库重读一遍：总次数上限拦不住它。"""

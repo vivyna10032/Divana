@@ -154,3 +154,26 @@ class PlanStore(SectionedMarkdown):
         混进来会让进度虚高。
         """
         return parse_milestones(self.read_section("路线图"))
+
+    def write_sections(
+        self, updates: dict[str, str]
+    ) -> tuple[list[str], list[tuple[str, str]]]:
+        """一次改多节，返回 (改好的章节, [(章节, 原因), ...] 形式的失败项)。
+
+        为什么要有"一次多节"：模型每调一次工具，下一轮都要把整段上下文重发一遍
+        （实测每次 4 ~ 6k token）。要改两节就调两次的话，多花的不只是钱，
+        还多一次"她可能绕圈"的机会——**接口该顺着她想做的事设计，而不是逼她拆开做**。
+
+        某一节失败不影响其他节：逐节写、逐节记结果，好让工具如实回报。
+        （`write_section` 本身是原子的，所以不会写出半节内容。）
+        """
+        written: list[str] = []
+        failed: list[tuple[str, str]] = []
+        for section, content in updates.items():
+            try:
+                self.write_section(section, content)
+            except self.error_cls as exc:
+                failed.append((section, str(exc)))
+            else:
+                written.append(section)
+        return written, failed

@@ -350,5 +350,56 @@ class BlocksTest(unittest.TestCase):
         self.assertNotIn("\n\n\n", self.store.read())
 
 
+class WriteSectionsTest(unittest.TestCase):
+    """一次改多节：接口该顺着"她想做的事"设计，而不是逼她把一件事拆成几次调用。
+
+    起因：update_plan 原来一次只能改一节，于是"更新计划"这件小事要动两节就得调两次，
+    而模型每多调一次工具、下一轮就要把整段上下文重发一遍（实测 4 ~ 6k token）。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.store = PlanStore(Path(self._tmp.name) / "plan.md")
+
+    def test_writes_several_sections_in_one_call(self) -> None:
+        written, failed = self.store.write_sections(
+            {
+                "路线图": "### 阶段一：agent 基础\n- [x] 自己写一个最小 agent",
+                "现在的位置": "刚做完阶段一。",
+            }
+        )
+        self.assertEqual(written, ["路线图", "现在的位置"])
+        self.assertEqual(failed, [])
+        text = self.store.read()
+        self.assertIn("- [x] 自己写一个最小 agent", text)
+        self.assertIn("刚做完阶段一。", text)
+
+    def test_one_bad_section_does_not_block_the_others(self) -> None:
+        """逐节写、逐节记结果——别让一节写错把整次调用废掉。"""
+        written, failed = self.store.write_sections(
+            {
+                "路线图": "### 阶段一\n- [x] 做完了",
+                "不存在的章节": "随便写点什么",
+                "下一步": "写架构说明。",
+            }
+        )
+        self.assertEqual(written, ["路线图", "下一步"])
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0][0], "不存在的章节")
+        text = self.store.read()
+        self.assertIn("- [x] 做完了", text)
+        self.assertIn("写架构说明。", text)
+
+    def test_empty_content_fails_just_that_section(self) -> None:
+        written, failed = self.store.write_sections({"下一步": "   ", "现在的位置": "起点。"})
+        self.assertEqual(written, ["现在的位置"])
+        self.assertEqual([name for name, _ in failed], ["下一步"])
+
+    def test_nothing_to_do_is_fine(self) -> None:
+        """空表不算错——工具会先拦一道，这里只保证不会炸。"""
+        self.assertEqual(self.store.write_sections({}), ([], []))
+
+
 if __name__ == "__main__":
     unittest.main()

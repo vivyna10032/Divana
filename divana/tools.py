@@ -23,7 +23,6 @@ from .fetch import (
     read_url as fetch_url,
 )
 from .notes import NoteError
-from .plan import PlanError
 from .profile import ProfileError
 from .search import SearchError, render
 
@@ -180,29 +179,39 @@ def read_plan(ctx: RunContextWrapper[DivanaContext]) -> str:
 @function_tool
 def update_plan(
     ctx: RunContextWrapper[DivanaContext],
-    section: PlanSection,
-    content: str,
+    updates: dict[PlanSection, str],
 ) -> str:
-    """更新学习计划的某一节。
+    """更新学习计划的一节或多节。
 
     什么时候用：你和用户商量出了一个方向，或者他说某件事学会了／暂时不学了。
-    一次只改一节。
 
-    注意这是**整体替换**：改之前先 read_plan，把这一节里仍然成立的内容一起
-    写进去，否则会丢。
+    **要动几节，就在这一次调用里全写上**：updates 里放几条就改几节。每多调一次工具，
+    整段上下文都要重发一遍，又慢又贵——所以别改一节调一次。
+
+    注意每一节都是**整体替换**：改之前先 read_plan，把这一节里仍然成立的内容
+    一起写进去，否则会丢。
 
     Args:
-        section: 要更新哪一节。
-        content: 这一节的完整新内容，markdown。用短句；没做的写 `- [ ]`，
-            做完的写 `- [x]`。
+        updates: {章节名: 该节的完整新内容}。可写的章节只有这四个：现在的位置、
+            下一步、路线图、复盘记录。内容是 markdown，用短句；没做的写 `- [ ]`，
+            做完的写 `- [x]`。例：{"路线图": "### 阶段一…\n- [x] 做完了",
+            "现在的位置": "刚做完阶段一。"}
     """
-    try:
-        ctx.context.plan.write_section(section, content)
-    except PlanError as exc:
-        return f"更新失败：{exc}"
+    if not updates:
+        return "没给要改的内容：updates 里至少写一节，比如 {\"现在的位置\": \"刚做完阶段一。\"}"
+
+    written, failed = ctx.context.plan.write_sections(updates)
+    if failed and not written:
+        return "一节都没改成：" + "；".join(f"「{name}」{why}" for name, why in failed)
+
+    parts: list[str] = []
+    if written:
+        parts.append("已更新计划的" + "、".join(f"「{name}」" for name in written))
+    if failed:
+        parts.append("没改成：" + "；".join(f"「{name}」{why}" for name, why in failed))
     return (
-        f"已更新计划的「{section}」（这是顺带改的）。"
-        "回到他问的问题上：用一句话带过你改了什么，然后继续。"
+        "；".join(parts)
+        + "（这是顺带改的）。回到他问的问题上：用一句话带过你改了什么，然后继续。"
     )
 
 

@@ -2,7 +2,7 @@
 
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.10.12
+## 当前版本：v0.11.0
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -307,7 +307,7 @@ HTML 必须被转义"这条安全断言。跟 Python 那边把纯逻辑和框架
 | --- | --- | --- |
 | `update_learner_profile` | 更新画像的某一节 | `vault/profile.md` |
 | `read_plan` | 看当前的学习计划 | `vault/plan.md` |
-| `update_plan` | 更新计划的某一节 | `vault/plan.md` |
+| `update_plan` | 更新计划的一节或多节（`updates` 是 {章节: 新内容} 的表） | `vault/plan.md` |
 | `search_web` | 联网查证 | 搜索服务商 |
 | `save_note` | 把一个概念存成笔记 | `vault/notes/` |
 | `search_notes` | 翻自己的笔记（传 `*` = 列出全部） | `vault/notes/` |
@@ -582,6 +582,11 @@ python -m divana.evals --only repo-read,paper-read
 > 结果**错怪了她**——`update_plan` 的接口一次只能改一节，要动两节就得调两次。
 > **断言和接口打架的时候，该改的是断言**（或者去改接口，别去改 prompt 逼她绕）。
 >
+> 后续（v0.11）：我们选的是**去改接口**——`update_plan` 现在一次能传多节。
+> 于是"同一个工具只调 1 次"这条断言**从错变成了对**：她要动几节就一次写完，
+> 3 次模型调用（读计划 + 改计划 + 回答）就能过。**这就是"接口设计诱导行为"的完整闭环**：
+> 先是接口逼她绕圈，被发现后改了接口，最后连断言都跟着变合理了。
+>
 > 姊妹坑：**提问和断言也要自洽**。有一条用例问的是"用两句话讲讲什么是 embedding，
 > 我在复习"，断言却是"讲完必须问一句要不要存笔记"——提问里既要求简短又暗示他已经懂，
 > 等于在说"别啰嗦"，却又要求她多问一句。她照做才是对的（prompt 本来就有豁免：
@@ -667,7 +672,7 @@ python -m divana.evals --only repo-read,paper-read
 
 ```
   [挂] plan-update　0/1　工具 3 次　15726 tokens
-        工具轨迹：read_plan → update_plan → update_plan
+        工具轨迹：read_plan → update_plan
         完整轨迹：D:\CodexProjects\divana\evals\trajectory\plan-update.md
 ```
 
