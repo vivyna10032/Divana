@@ -6,6 +6,7 @@
 退出码 0 表示环境没问题，1 表示有需要处理的地方。
 """
 
+import json
 import os
 import sys
 from datetime import datetime
@@ -228,6 +229,23 @@ def check_tools() -> None:
         return
 
     show("工具数", str(len(tools)))
+    # 顺手报一下"每次调用都要重发"的固定开销：schema 和 docstring 都会进上下文，
+    # 而且是**每一次模型调用**都重发一遍。削成本先削这里。
+    total_chars = 0
+    sizes: list[tuple[int, str]] = []
+    for tool in tools:
+        name = getattr(tool, "name", "?")
+        schema = getattr(tool, "params_json_schema", None) or {}
+        size = len(json.dumps(schema, ensure_ascii=False)) + len(
+            getattr(tool, "description", "") or ""
+        )
+        total_chars += size
+        sizes.append((size, name))
+
+    show("固定开销", f"全部工具的 schema + 说明合计 {total_chars} 字符（每次调用都重发）")
+    for size, name in sorted(sizes, reverse=True)[:3]:
+        show(f"  最大：{name}", f"{size} 字符")
+
     for tool in tools:
         name = getattr(tool, "name", "?")
         schema = getattr(tool, "params_json_schema", None) or {}
