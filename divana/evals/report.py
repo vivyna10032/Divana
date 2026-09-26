@@ -142,8 +142,12 @@ def summarize(
     }
 
 
-def compare(baseline: dict, current: dict) -> list[str]:
-    """只看变化。这是整个评测里最该盯的一段输出。"""
+def compare(baseline: dict, current: dict, *, subset: bool = False) -> list[str]:
+    """只看变化。这是整个评测里最该盯的一段输出。
+
+    `subset=True` 用在 `--only` 的场景：这次只跑了几条，baseline 里的其余用例
+    根本没跑过——再刷一屏"只存在于 baseline"就是噪音，会把真正的 [回归] 淹掉。
+    """
     before = baseline.get("cases", {})
     after = current.get("cases", {})
     lines: list[str] = []
@@ -160,7 +164,16 @@ def compare(baseline: dict, current: dict) -> list[str]:
 
     for case_id in before:
         if case_id not in after:
+            if subset:
+                continue
             lines.append(f"[只存在于 baseline] {case_id}")
+
+    if subset:
+        skipped = set(before) - set(after)
+        if skipped:
+            lines.append(
+                f"（这次只跑了 {len(after)} 条，baseline 里另外 {len(skipped)} 条没跑，不参与对比）"
+            )
     return lines
 
 

@@ -143,7 +143,9 @@ def main() -> None:
         ran_at=started.strftime("%Y-%m-%d %H:%M"),
     )
     baseline = load_baseline(baseline_path)
-    diff = compare(baseline, summary) if baseline else None
+    # --only 时传 subset：否则 baseline 里没跑的用例会被刷成"只存在于 baseline"，
+    # 把真正的 [回归] 淹掉（2026-09-26 真被淹过一次，还害我先怀疑是回归）。
+    diff = compare(baseline, summary, subset=bool(args.only)) if baseline else None
 
     print()
     print(render_report(summary, diff))

@@ -859,6 +859,19 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(any("[修好] a" in line for line in diff))
         self.assertTrue(any("[新增] b" in line for line in diff))
 
+    def test_compare_in_subset_mode_does_not_list_the_skipped_cases(self) -> None:
+        """--only 时别刷一屏"只存在于 baseline"——它会把真正的 [回归] 淹掉。
+
+        2026-09-26 真的被淹过一次：只跑 plan-update，结果 17 条没跑的用例全被标成
+        "只存在于 baseline"，我第一眼还以为出了大范围回归。
+        """
+        before = summarize([self.result("a", ok=True), self.result("b", ok=True)], model="m")
+        after = summarize([self.result("a", ok=False)], model="m")
+        diff = compare(before, after, subset=True)
+        self.assertFalse(any("[只存在于 baseline]" in line for line in diff))
+        self.assertTrue(any("[回归] a" in line for line in diff))
+        self.assertTrue(any("没跑" in line for line in diff))
+
     def test_render_report_shows_failed_checks_and_details(self) -> None:
         text = render_report(summarize([self.result("a", ok=False)], model="m", commit="c"))
         self.assertIn("通过 0 / 1", text)
