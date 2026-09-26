@@ -195,6 +195,33 @@ def check_config() -> None:
     )
 
 
+def rough_tokens(text: str) -> int:
+    """粗估 token：汉字按 0.6、其余按 0.3 折（跟评测报告里那套口径一致）。"""
+    weight = 0.0
+    for char in text:
+        weight += 0.6 if "\u4e00" <= char <= "\u9fff" else 0.3
+    return max(1, round(weight))
+
+
+def show_persona_size() -> None:
+    """人格 prompt 有多大——它是另一半"每次调用都重发"的固定开销。
+
+    画像会接在它后面，那部分每轮不一样，所以这里只量固定的人格文件。
+    想知道"一次调用到底要花多少保底 token"，把这一项和上面的工具合计加起来看。
+    """
+    try:
+        from divana.prompt import load_persona
+
+        persona = load_persona()
+    except Exception as exc:  # noqa: BLE001 - 自检脚本不能崩
+        show("人格 prompt", f"读不到：{type(exc).__name__}: {exc}")
+        return
+    show(
+        "人格 prompt",
+        f"{len(persona)} 字符（约 {rough_tokens(persona)} token，每次调用都重发）",
+    )
+
+
 def check_tools() -> None:
     """工具定义能不能建起来——这一步会真的构造一遍工具。
 
@@ -245,6 +272,7 @@ def check_tools() -> None:
     show("固定开销", f"全部工具的 schema + 说明合计 {total_chars} 字符（每次调用都重发）")
     for size, name in sorted(sizes, reverse=True)[:3]:
         show(f"  最大：{name}", f"{size} 字符")
+    show_persona_size()
 
     for tool in tools:
         name = getattr(tool, "name", "?")
