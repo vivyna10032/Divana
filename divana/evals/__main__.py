@@ -26,6 +26,7 @@ from .cases import load_cases
 from .report import (
     compare,
     load_baseline,
+    render_attempts_table,
     render_report,
     render_token_table,
     save_baseline,
@@ -152,6 +153,10 @@ def main() -> None:
     if results:
         print()
         print(render_token_table(results, cases_by_id))
+        attempts = render_attempts_table(results)
+        if attempts:
+            print()
+            print(attempts)
 
     if written:
         print()

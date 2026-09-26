@@ -19,7 +19,7 @@ from ..context import build_context
 from ..session import open_session
 from .cases import Case
 from .checks import FileSnapshot, LlmCall, Outcome, Step, ToolCall, check_case
-from .report import CaseResult
+from .report import AttemptCost, CaseResult
 
 
 def _snapshot(vault: Path) -> tuple[FileSnapshot, ...]:
@@ -234,11 +234,22 @@ async def run_case(settings: Settings, case: Case, *, attempts: int = 1) -> Case
     findings = []
     failed_outcome: Outcome | None = None
     passed_attempts = 0
+    # 每一次都记一笔成本：只留最后一次的话，没法区分"改动有效"和"模型在抖"。
+    costs: list[AttemptCost] = []
 
     for _ in range(max(1, attempts)):
         outcome = await _run_once(settings, case)
         current = check_case(case, outcome)
-        if all(item.ok for item in current):
+        passed = all(item.ok for item in current)
+        costs.append(
+            AttemptCost(
+                calls=len(outcome.llm_calls) or outcome.requests,
+                input_tokens=outcome.input_tokens,
+                output_tokens=outcome.output_tokens,
+                passed=passed,
+            )
+        )
+        if passed:
             passed_attempts += 1
         elif not findings:
             findings = current
@@ -258,6 +269,7 @@ async def run_case(settings: Settings, case: Case, *, attempts: int = 1) -> Case
         findings=tuple(findings),
         attempts=max(1, attempts),
         passed_attempts=passed_attempts,
+        attempt_costs=tuple(costs),
     )
 
 

@@ -25,11 +25,13 @@ from divana.evals.checks import (
     urls_in,
 )
 from divana.evals.report import (
+    AttemptCost,
     CaseResult,
     compare,
     estimate_tokens,
     load_baseline,
     render_report,
+    render_attempts_table,
     render_token_breakdown,
     render_token_table,
     render_trajectory,
@@ -714,6 +716,39 @@ class TokenTest(unittest.TestCase):
         self.assertIn("超上限", table)
         self.assertLess(table.index("pricey"), table.index("cheap"))  # 贵的排前面
         self.assertNotIn("cheap ←", table)
+
+    def test_attempts_table_shows_the_spread(self) -> None:
+        """一次跑分说明不了问题——要看均值，更要看极差。
+
+        起因：改完工具说明之后单次 input 从 15491 掉到 14593，看着省了 898；
+        但这个差是结构性的（说明文字少了 306 字符）还是模型在抖，只有多次跑才知道。
+        """
+        made = CaseResult(
+            case_id="demo",
+            outcome=Outcome(text="x"),
+            findings=(),
+            attempts=3,
+            passed_attempts=2,
+            attempt_costs=(
+                AttemptCost(calls=3, input_tokens=14000, output_tokens=800, passed=True),
+                AttemptCost(calls=3, input_tokens=15200, output_tokens=1200, passed=False),
+                AttemptCost(calls=3, input_tokens=14600, output_tokens=900, passed=True),
+            ),
+        )
+        table = render_attempts_table([made])
+        self.assertIn("14600", table)          # 均值
+        self.assertIn("14000 ~ 15200", table)  # 极差
+        self.assertIn("2/3", table)
+        self.assertIn("极差", table)
+
+    def test_attempts_table_is_empty_for_a_single_run(self) -> None:
+        single = CaseResult(
+            case_id="demo",
+            outcome=Outcome(text="x"),
+            findings=(),
+            attempt_costs=(AttemptCost(calls=1, input_tokens=100, output_tokens=10, passed=True),),
+        )
+        self.assertEqual(render_attempts_table([single]), "")
 
     def test_one_run_can_hold_several_model_calls(self) -> None:
         """一次 Runner.run 里有几次模型调用，取决于她中间调了几次工具。"""

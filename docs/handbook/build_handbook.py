@@ -47,7 +47,7 @@ def _with_new_chapters(blocks: list, extra: list) -> list:
     改完还能对着目录核一遍。
     """
     for index, (kind, payload) in enumerate(blocks):
-        if kind == "h1" and payload.startswith("第 8 章"):
+        if kind == "h1" and payload.startswith("第 9 章"):
             return [*blocks[:index], *extra, *blocks[index:]]
     return [*blocks, *extra]
 

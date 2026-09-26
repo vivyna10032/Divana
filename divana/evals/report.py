@@ -76,12 +76,28 @@ def token_totals(outcome: Outcome) -> tuple[int, int, int]:
 
 
 @dataclass(frozen=True)
+class AttemptCost:
+    """一次尝试的成本与结果。
+
+    `--attempts N` 时要把**每一次**都记下来：只看最后一次的话，你没法判断
+    "这次改动省了 450 token"是结构性的，还是模型本来就在抖。同一个数字，
+    有均值和极差才敢下结论。
+    """
+
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    passed: bool
+
+
+@dataclass(frozen=True)
 class CaseResult:
     case_id: str
     outcome: Outcome
     findings: tuple[Finding, ...]
     attempts: int = 1
     passed_attempts: int = 1
+    attempt_costs: tuple[AttemptCost, ...] = ()
 
     @property
     def passed(self) -> bool:
@@ -298,6 +314,44 @@ def render_token_breakdown(result: CaseResult) -> str:
                     f"| 第 {turn} 轮 | `{step.name}` | {len(step.output)} | "
                     f"{estimate_tokens(step.output)} |"
                 )
+    return "\n".join(lines)
+
+
+def render_attempts_table(results: list[CaseResult]) -> str:
+    """多次尝试的成本：均值和极差。
+
+    **没有极差就没法判断改动有没有效**：同一个版本三次跑下来 input 就能差 800 的话，
+    "这次省了 450 token" 什么都说明不了。这一节就是给这种判断用的——
+    它是「先量再说」的最后一块拼图。
+    """
+    rows = [item for item in results if len(item.attempt_costs) > 1]
+    if not rows:
+        return ""
+
+    lines = [
+        "多次尝试的成本（--attempts 的用处就在这儿）：",
+        "",
+        f"{_pad('用例', 24)}{_pad('次数', 6)}{_pad('input 均值', 12)}"
+        f"{_pad('input 极差', 18)}{_pad('output 均值', 12)}通过",
+    ]
+    spreads: list[int] = []
+    for result in rows:
+        ins = [cost.input_tokens for cost in result.attempt_costs]
+        outs = [cost.output_tokens for cost in result.attempt_costs]
+        spreads.append(max(ins) - min(ins))
+        lines.append(
+            f"{_pad(result.case_id, 24)}{_pad(str(len(ins)), 6)}"
+            f"{_pad(str(sum(ins) // len(ins)), 12)}"
+            f"{_pad(f'{min(ins)} ~ {max(ins)}', 18)}"
+            f"{_pad(str(sum(outs) // len(outs)), 12)}"
+            f"{result.passed_attempts}/{result.attempts}"
+        )
+
+    lines.append("")
+    lines.append(
+        f"input 极差平均 {sum(spreads) // len(spreads)} 左右："
+        "**极差比你要验证的改动还大的时候，单次跑分不能作数**。"
+    )
     return "\n".join(lines)
 
 
