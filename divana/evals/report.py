@@ -152,6 +152,18 @@ def compare(baseline: dict, current: dict, *, subset: bool = False) -> list[str]
     after = current.get("cases", {})
     lines: list[str] = []
 
+    # 先说最容易被忽略的一件事：**这两份结果是不是同一版代码跑出来的**。
+    # 不是的话，下面所有 [回归] 都要打问号——2026-09-26 就被这种"过期 baseline"
+    # 骗过一次，先怀疑了半天是她退化。
+    old_commit = str(baseline.get("commit", "")).strip()
+    new_commit = str(current.get("commit", "")).strip()
+    if old_commit and new_commit and old_commit != new_commit:
+        lines.append(
+            f"[注意] baseline 是 {old_commit}（{baseline.get('ran_at', '?')}）跑的，"
+            f"这次是 {new_commit}——两版不是同一份代码，下面的 [回归] 只能当线索，"
+            "别当结论（确认没问题之后跑一次 --save 把它对齐）"
+        )
+
     for case_id, now in after.items():
         was = before.get(case_id)
         if was is None:

@@ -1,7 +1,7 @@
 {
   "model": "deepseek-v4-pro",
-  "commit": "3017b2d",
-  "ran_at": "2026-09-24 18:17",
+  "commit": "77ffb54",
+  "ran_at": "2026-10-13 11:42",
   "total": 18,
   "passed": 18,
   "cases": {
@@ -13,9 +13,9 @@
         "read_plan"
       ],
       "requests": 2,
-      "tokens": 8990,
-      "input_tokens": 8627,
-      "output_tokens": 363,
+      "tokens": 9657,
+      "input_tokens": 9322,
+      "output_tokens": 335,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -28,9 +28,9 @@
         "read_github_repo"
       ],
       "requests": 2,
-      "tokens": 11609,
-      "input_tokens": 10915,
-      "output_tokens": 694,
+      "tokens": 12515,
+      "input_tokens": 11641,
+      "output_tokens": 874,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -43,9 +43,9 @@
         "read_arxiv_paper"
       ],
       "requests": 2,
-      "tokens": 12512,
-      "input_tokens": 11139,
-      "output_tokens": 1373,
+      "tokens": 13084,
+      "input_tokens": 11834,
+      "output_tokens": 1250,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -58,9 +58,9 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 9662,
-      "input_tokens": 9264,
-      "output_tokens": 398,
+      "tokens": 10717,
+      "input_tokens": 10373,
+      "output_tokens": 344,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -73,9 +73,9 @@
         "save_note"
       ],
       "requests": 2,
-      "tokens": 9359,
-      "input_tokens": 8902,
-      "output_tokens": 457,
+      "tokens": 10746,
+      "input_tokens": 9960,
+      "output_tokens": 786,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -88,8 +88,8 @@
         "search_notes"
       ],
       "requests": 2,
-      "tokens": 8631,
-      "input_tokens": 8520,
+      "tokens": 9343,
+      "input_tokens": 9232,
       "output_tokens": 111,
       "llm_calls": 2,
       "failed_checks": [],
@@ -103,9 +103,9 @@
         "update_learner_profile"
       ],
       "requests": 2,
-      "tokens": 9303,
-      "input_tokens": 8812,
-      "output_tokens": 491,
+      "tokens": 9924,
+      "input_tokens": 9451,
+      "output_tokens": 473,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -116,14 +116,12 @@
       "passed_attempts": 1,
       "tool_calls": [
         "read_plan",
-        "update_plan",
-        "update_plan",
-        "update_learner_profile"
+        "update_plan"
       ],
       "requests": 3,
-      "tokens": 15917,
-      "input_tokens": 14439,
-      "output_tokens": 1478,
+      "tokens": 15898,
+      "input_tokens": 14921,
+      "output_tokens": 977,
       "llm_calls": 3,
       "failed_checks": [],
       "detail": []
@@ -134,9 +132,9 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4271,
-      "input_tokens": 4208,
-      "output_tokens": 63,
+      "tokens": 4670,
+      "input_tokens": 4568,
+      "output_tokens": 102,
       "llm_calls": 1,
       "failed_checks": [],
       "detail": []
@@ -147,9 +145,9 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4304,
-      "input_tokens": 4221,
-      "output_tokens": 83,
+      "tokens": 4623,
+      "input_tokens": 4581,
+      "output_tokens": 42,
       "llm_calls": 1,
       "failed_checks": [],
       "detail": []
@@ -160,9 +158,9 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4275,
-      "input_tokens": 4208,
-      "output_tokens": 67,
+      "tokens": 4675,
+      "input_tokens": 4568,
+      "output_tokens": 107,
       "llm_calls": 1,
       "failed_checks": [],
       "detail": []
@@ -171,12 +169,14 @@
       "passed": true,
       "attempts": 1,
       "passed_attempts": 1,
-      "tool_calls": [],
-      "requests": 1,
-      "tokens": 5690,
-      "input_tokens": 4218,
-      "output_tokens": 1472,
-      "llm_calls": 1,
+      "tool_calls": [
+        "update_learner_profile"
+      ],
+      "requests": 2,
+      "tokens": 13949,
+      "input_tokens": 11503,
+      "output_tokens": 2446,
+      "llm_calls": 2,
       "failed_checks": [],
       "detail": []
     },
@@ -188,9 +188,9 @@
         "read_github_repo"
       ],
       "requests": 3,
-      "tokens": 19595,
-      "input_tokens": 18502,
-      "output_tokens": 1093,
+      "tokens": 20331,
+      "input_tokens": 19432,
+      "output_tokens": 899,
       "llm_calls": 3,
       "failed_checks": [],
       "detail": []
@@ -199,14 +199,12 @@
       "passed": true,
       "attempts": 1,
       "passed_attempts": 1,
-      "tool_calls": [
-        "read_plan"
-      ],
-      "requests": 2,
-      "tokens": 11814,
-      "input_tokens": 9192,
-      "output_tokens": 2622,
-      "llm_calls": 2,
+      "tool_calls": [],
+      "requests": 1,
+      "tokens": 6292,
+      "input_tokens": 4586,
+      "output_tokens": 1706,
+      "llm_calls": 1,
       "failed_checks": [],
       "detail": []
     },
@@ -218,9 +216,9 @@
         "read_github_repo"
       ],
       "requests": 2,
-      "tokens": 8894,
-      "input_tokens": 8639,
-      "output_tokens": 255,
+      "tokens": 9605,
+      "input_tokens": 9330,
+      "output_tokens": 275,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -234,9 +232,9 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 9293,
-      "input_tokens": 8669,
-      "output_tokens": 624,
+      "tokens": 9834,
+      "input_tokens": 9360,
+      "output_tokens": 474,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -249,9 +247,9 @@
         "search_web"
       ],
       "requests": 2,
-      "tokens": 9620,
-      "input_tokens": 9235,
-      "output_tokens": 385,
+      "tokens": 10450,
+      "input_tokens": 9976,
+      "output_tokens": 474,
       "llm_calls": 2,
       "failed_checks": [],
       "detail": []
@@ -262,9 +260,9 @@
       "passed_attempts": 1,
       "tool_calls": [],
       "requests": 1,
-      "tokens": 4378,
-      "input_tokens": 4217,
-      "output_tokens": 161,
+      "tokens": 4757,
+      "input_tokens": 4577,
+      "output_tokens": 180,
       "llm_calls": 1,
       "failed_checks": [],
       "detail": []

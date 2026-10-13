@@ -872,6 +872,24 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(any("[回归] a" in line for line in diff))
         self.assertTrue(any("没跑" in line for line in diff))
 
+    def test_compare_warns_when_the_baseline_is_from_another_commit(self) -> None:
+        """过期 baseline 会刷出假回归——先说清楚，再列变化。
+
+        2026-09-26 真被坑过：prompt 和工具都改过好几版了，baseline 还是几天前存的，
+        结果一行 [回归] 让排查方向一开始就跑偏。
+        """
+        before = summarize([self.result("a", ok=True)], model="m", commit="aaa1111")
+        after = summarize([self.result("a", ok=False)], model="m", commit="bbb2222")
+        diff = compare(before, after)
+        self.assertTrue(any("[注意]" in line for line in diff))
+        self.assertTrue(any("aaa1111" in line for line in diff))
+        self.assertEqual(diff[0].startswith("[注意]"), True)  # 放在最前面
+
+    def test_compare_stays_quiet_when_commits_match(self) -> None:
+        before = summarize([self.result("a", ok=True)], model="m", commit="same")
+        after = summarize([self.result("a", ok=True)], model="m", commit="same")
+        self.assertEqual(compare(before, after), [])
+
     def test_render_report_shows_failed_checks_and_details(self) -> None:
         text = render_report(summarize([self.result("a", ok=False)], model="m", commit="c"))
         self.assertIn("通过 0 / 1", text)
