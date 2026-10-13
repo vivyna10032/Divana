@@ -296,6 +296,24 @@ def check_case(case: Case, outcome: Outcome) -> list[Finding]:
             )
         )
 
+    # 9b. 工具返回里该有什么
+    #
+    # 有些结论**只有工具能给出**：自测的判定（对 / 半对 / 错）是工具算的，
+    # 不是她嘴上说的。她完全可能一边说"你答得不错"、一边让工具记下"错"——
+    # 这种偏差，只有查工具返回才看得见。
+    if case.expect_tool_output:
+        haystack = "\n".join(outcome.tool_outputs) or "（一次工具都没调）"
+        for item in case.expect_tool_output:
+            hit = re.search(item.pattern, haystack, re.MULTILINE) is not None
+            label = item.label or f"工具返回符合 {item.pattern}"
+            findings.append(
+                Finding(
+                    hit,
+                    label,
+                    "" if hit else f"实际工具返回：{haystack[:PREVIEW_CHARS]}",
+                )
+            )
+
     # 10. 产物：文件真的写对了吗
     #
     # 放在最后是有意的：前面判的是**过程**（调了哪个工具、说了什么），

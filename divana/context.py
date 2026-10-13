@@ -15,6 +15,7 @@ from pathlib import Path
 from .config import Settings
 from .notes import NoteStore
 from .plan import PlanStore
+from .practice import PracticeStore
 from .profile import ProfileStore
 from .search import SearchClient
 
@@ -24,6 +25,7 @@ class DivanaContext:
     profile: ProfileStore
     notes: NoteStore
     plan: PlanStore
+    practice: PracticeStore
     search: SearchClient
     github_token: str = ""
 
@@ -40,6 +42,8 @@ def build_context(settings: Settings, *, root: Path | None = None) -> DivanaCont
         profile=ProfileStore(base / "profile.md") if base else ProfileStore(),
         notes=NoteStore(base / "notes") if base else NoteStore(),
         plan=PlanStore(base / "plan.md") if base else PlanStore(),
+        # 练习记录也走同一个 base：评测用临时目录，所以它同样碰不到你真实的练习
+        practice=PracticeStore(base / "practice.json") if base else PracticeStore(),
         search=SearchClient(
             provider=settings.search_provider,
             api_key=settings.search_api_key,

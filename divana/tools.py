@@ -25,6 +25,16 @@ from .fetch import (
 )
 from .notes import NoteError
 from .profile import ProfileError
+from .practice import (
+    PracticeError,
+    Question,
+    check_answers,
+    check_quiz,
+    render_quiz,
+    render_review_entry,
+    score,
+)
+from .practice import Answer as PracticeAnswer
 from .search import SearchError, render
 
 # 参数类型写成 Literal，SDK 会把它转成 JSON Schema 里的枚举，
@@ -228,6 +238,124 @@ def update_plan(
     )
 
 
+class QuizQuestion(BaseModel):
+    """一道题。
+
+    注意 `points`：那是**给批改用的参考要点**。别把它念给用户听（等于报答案），
+    但每道题都必须有——没有要点，批改就只能凭印象给分。
+    """
+
+    prompt: str
+    points: list[str]
+    source: str = ""
+
+
+class QuizAnswer(BaseModel):
+    """一道题的判定。三档：对 / 半对 / 错。"""
+
+    index: int
+    verdict: Literal["对", "半对", "错"]
+    comment: str = ""
+    missing: list[str] = []
+
+
+@function_tool
+def make_quiz(
+    ctx: RunContextWrapper[DivanaContext],
+    topic: str,
+    questions: list[QuizQuestion],
+) -> str:
+    """出一份小测，把它和参考答案一起存下来。
+
+    什么时候用：他说"考考我""测测我""出几道题"，或者你刚讲完一个概念、想确认
+    他是真的懂了。
+
+    **题目只能来自你手边的真材料**：学习计划、你写过的笔记、他的画像。一测 3 ~ 5 题
+    就够，每题 1 ~ 3 条参考要点。别考他没接触过的东西——那是打击，不是测验。
+
+    Args:
+        topic: 这次考什么，比如"RAG 的切分与检索"。
+        questions: 题目列表。每题写 prompt（题干）、points（参考要点）、
+            source（这题从哪来，比如笔记标题或计划里的哪一条）。
+    """
+    try:
+        quiz = check_quiz(
+            topic,
+            [
+                Question(
+                    prompt=item.prompt,
+                    points=tuple(item.points),
+                    source=item.source,
+                )
+                for item in questions
+            ],
+        )
+        ctx.context.practice.save_quiz(quiz)
+    except PracticeError as exc:
+        return f"出题失败：{exc}"
+
+    return (
+        f"出好了，存下的是这个（含参考要点）：\n\n{render_quiz(quiz)}\n\n"
+        "接下来：把题目发给他，等他答。**参考要点别念出来**，那是批改用的。"
+    )
+
+
+@function_tool
+def grade_quiz(
+    ctx: RunContextWrapper[DivanaContext],
+    answers: list[QuizAnswer],
+) -> str:
+    """批改这次小测：记下判定，并把错题汇总写进学习计划的"复盘记录"。
+
+    什么时候用：他答完之后。一次只答了一部分也行——把判过的题都写进来。
+
+    怎么判：**对照每道题存下来的参考要点**，只有三档——
+    对（要点齐了）、半对（方向对但漏了关键点）、错（没答上或答反了）。
+    **不许放水**：差一个关键点就是半对，不是对；也别为了照顾情绪把错说成半对。
+    missing 里写漏掉的要点原话，comment 写一句"该怎么补"。
+
+    Args:
+        answers: 每道题一条：index（第几题，从 1 开始）、verdict（对 / 半对 / 错）、
+            comment（一句评语）、missing（漏掉的要点）。
+    """
+    try:
+        state = ctx.context.practice.load()
+        judged = check_answers(
+            state.quiz,
+            [
+                PracticeAnswer(
+                    index=item.index,
+                    verdict=item.verdict,
+                    comment=item.comment,
+                    missing=tuple(item.missing),
+                )
+                for item in answers
+            ],
+        )
+        ctx.context.practice.save_answers(judged)
+    except PracticeError as exc:
+        return f"批改失败：{exc}"
+
+    stat = score(state.quiz, judged)
+    entry = render_review_entry(state.quiz, judged)
+    ctx.context.plan.append_to_section("复盘记录", entry)
+    # 逐题列一遍：她照着这个汇报就不会记错；评测里也只盯这种"带题号的判定"——
+    # 只盯"(错|半对)"是不行的，因为下面那行计数里三个词都会出现（对 1、半对 0、错 0），
+    # 那样连"全对"都能命中。
+    detail = "\n".join(
+        f"- 第 {answer.index} 题：{answer.verdict}"
+        + (f"（漏了：{'、'.join(answer.missing)}）" if answer.missing else "")
+        for answer in judged
+    )
+    return (
+        f"批改完了：{stat.total} 题，对 {stat.right}、半对 {stat.half}、错 {stat.wrong}"
+        f"（{stat.percent} 分）。错题已经写进学习计划的「复盘记录」。\n\n"
+        f"{detail}\n\n"
+        "接下来：把成绩告诉他，**把没掌握的要点讲清楚**（这是这一轮最要紧的部分）；"
+        "错得多的主题，顺手更新画像的「薄弱点」。"
+    )
+
+
 @function_tool
 def read_url(url: str) -> str:
     """读一个网页的正文：技术文档、博客、文章、教程都行。
@@ -289,6 +417,8 @@ def build_tools() -> list[Tool]:
         update_learner_profile,
         read_plan,
         update_plan,
+        make_quiz,
+        grade_quiz,
         search_web,
         save_note,
         search_notes,

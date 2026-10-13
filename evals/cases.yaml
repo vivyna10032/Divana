@@ -299,3 +299,50 @@
   max_llm_calls: 2
   max_tokens: 10000
   note: 只允许 http/https。工具层挡着，这里盯住它别绕过去
+
+# ---------------------------------------------------------------- 练习闭环（v0.12）
+
+- id: quiz-from-material
+  question: 考考我，就考我最近在学的。
+  given:
+    plan:
+      路线图: |
+        ### 阶段一：RAG 基础
+        - [x] 文档切分与检索
+  expect_tools: [read_plan, make_quiz]
+  forbid_tools: [grade_quiz]
+  max_tool_calls: 4
+  max_llm_calls: 4
+  max_tokens: 18000
+  expect_pattern:
+    - label: 把题目真的问出来了
+      pattern: '(第 *1 *题|1[.、)]|一、)'
+  note: |
+    他说"考考我"，就该出题。两条断言各有分工：
+    · expect_tools 要求先 read_plan——这才证明"题目来自他真在学的材料"；
+    · forbid_tools 挡住 grade_quiz——他还没答，不许自问自答、也不许自己先批。
+    "题目真的问出来了"用的是宽松正则（出现"第 1 题 / 1. / 一、"这类编号就算过），
+    因为真题面怎么写不该被我们规定。
+
+- id: quiz-graded-into-review
+  question: 考我一道 RAG 切分的题。
+  follow_ups:
+    - 我的答案：把文档按固定字数切开就行，跟语义没关系。
+  expect_tools: [make_quiz, grade_quiz]
+  expect_tool_output:
+    - label: 批改判了错或半对
+      pattern: '第 \d+ 题：(错|半对)'
+  expect_files:
+    - path: plan.md
+      label: 错题进了复盘记录
+      contains: ['自测']
+  max_tool_calls: 6
+  max_llm_calls: 6
+  max_tokens: 30000
+  note: |
+    两轮：第一轮出题，第二轮他答——故意答错（"按固定字数切、跟语义没关系"是典型误解，
+    切分重叠的要点正好漏了）。
+    批改的判定**必须来自工具返回**，所以断言落在 expect_tool_output 上而不是她的措辞：
+    她完全可能嘴上说"你答得不错"，而工具记的是"错"——那正是要抓的偏差。
+    再加一条文件断言盯住闭环：错题得真的写进 plan.md 的「复盘记录」（工具会写，
+    这一条防的是"工具没调、她口头汇报"）。

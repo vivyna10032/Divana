@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from datetime import date
@@ -228,6 +229,7 @@ class LoadCasesTest(unittest.TestCase):
         """用例文件里得真的用上这几类断言，不然等于白加功能。"""
         cases = load_cases()
         self.assertTrue(any(item.expect_files for item in cases))
+        self.assertTrue(any(item.expect_tool_output for item in cases))
         self.assertTrue(any(item.max_calls_per_tool for item in cases))
         self.assertTrue(all(item.max_llm_calls for item in cases))
         self.assertTrue(any(item.given_settings for item in cases))
@@ -325,6 +327,36 @@ class CheckCaseTest(unittest.TestCase):
             failed_labels(check_case(made, outcome(text="我搜到了三条相关资料"))),
             ["如实说没搜到"],
         )
+
+    def test_expect_tool_output_checks_what_the_tool_reported(self) -> None:
+        """有些结论只有工具能给（比如自测的判定）——断言要落在工具返回上。
+
+        她可以一边说"你答得不错"，一边让工具记下"错"。只查她的措辞抓不到这种偏差。
+        """
+        made = case(expect_tool_output=[{"label": "批改判了错", "pattern": "(错|半对)"}])
+        good = outcome(text="你的答案不错", tool_outputs=("批改完了：1 题，错 1。",))
+        self.assertEqual(failed_labels(check_case(made, good)), [])
+        bad = outcome(text="你的答案不错", tool_outputs=("批改完了：1 题，对 1。",))
+        self.assertIn("批改判了错", failed_labels(check_case(made, bad)))
+
+    def test_expect_tool_output_fails_when_no_tool_ran(self) -> None:
+        made = case(expect_tool_output=[{"label": "批改判了错", "pattern": "错"}])
+        labels = failed_labels(check_case(made, outcome(text="你答得不错")))
+        self.assertIn("批改判了错", labels)
+
+    def test_the_verdict_assertion_is_not_fooled_by_the_counts(self) -> None:
+        """查工具返回的那条断言，必须带上题号和冒号。
+
+        批改工具的返回里印着三个计数（"对 1、半对 0、错 0"），所以只写 `(错|半对)`
+        的话，**连"这一测全对"都能命中**——断言就成了摆设。
+        这个坑是我自己写完立刻验出来的（先量再说，连尺子也要量）。
+        """
+        made = next(item for item in load_cases() if item.id == "quiz-graded-into-review")
+        pattern = made.expect_tool_output[0].pattern
+        all_right = "批改完了：1 题，对 1、半对 0、错 0（100 分）。\n- 第 1 题：对"
+        self.assertIsNone(re.search(pattern, all_right))
+        wrong = "批改完了：1 题，对 0、半对 0、错 1（0 分）。\n- 第 1 题：错"
+        self.assertIsNotNone(re.search(pattern, wrong))
 
     def test_expect_pattern_label_falls_back_to_the_regex(self) -> None:
         made = case(expect_pattern="没找到")

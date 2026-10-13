@@ -31,6 +31,7 @@ _KNOWN_FIELDS = frozenset(
         "expect_text",
         "expect_any",
         "expect_pattern",
+        "expect_tool_output",
         "expect_files",
         "max_tool_calls",
         "max_calls_per_tool",
@@ -111,6 +112,10 @@ class Case:
     expect_text: tuple[str, ...] = ()
     expect_any: tuple[str, ...] = ()
     expect_pattern: tuple[TextPattern, ...] = ()
+    # 有些结论**只有工具能给**（比如自测的判定：对 / 半对 / 错）。
+    # 断言落在这里，而不是她的措辞上——她嘴上说"你答得不错"、工具记的是"错"，
+    # 这种情况只有查工具返回才看得见。
+    expect_tool_output: tuple[TextPattern, ...] = ()
     expect_files: tuple[FileExpectation, ...] = ()
     max_tool_calls: int | None = None
     max_calls_per_tool: dict[str, int] = field(default_factory=dict)
@@ -349,6 +354,9 @@ def parse_case(raw: Any, *, where: str = "") -> Case:
         expect_any=_string_list(raw.get("expect_any"), where=f"{where}.expect_any"),
         expect_pattern=_patterns(
             raw.get("expect_pattern"), where=f"{where}.expect_pattern"
+        ),
+        expect_tool_output=_patterns(
+            raw.get("expect_tool_output"), where=f"{where}.expect_tool_output"
         ),
         expect_files=_file_expectations(
             raw.get("expect_files"), where=f"{where}.expect_files"
