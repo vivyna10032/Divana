@@ -46,6 +46,7 @@ function showView(name) {
   if (name === "plan") loadPlan();
   if (name === "profile") loadProfile();
   if (name === "digest") loadDigests();
+  if (name === "practice") loadPractice();
 }
 
 document.querySelectorAll(".nav-item").forEach((btn) => {
@@ -645,6 +646,115 @@ async function openNote(name) {
 
 /* ---------------------------------------------------------------- 绑定 */
 
+/* ---------------------------------------------------------------- 练习 */
+
+let practiceData = null;
+
+// 用户这次的答案只留在本地：值得落盘的是判定和错题，答案本身不值得存
+// （刷新页面就没了——想留着就自己存成笔记）。
+const practiceAnswers = {};
+
+function practiceStatus(text) {
+  const running = Boolean(text);
+  $("btn-quiz").disabled = running;
+  $("btn-grade").disabled = running;
+  $("quiz-status").textContent = running
+    ? text
+    : practiceData && practiceData.has_quiz
+      ? `${practiceData.topic}（${practiceData.created_at}）`
+      : "";
+}
+
+async function loadPractice() {
+  try {
+    practiceData = await api("/api/practice");
+    renderPractice();
+  } catch (err) {
+    $("quiz-body").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+function renderPractice() {
+  const data = practiceData || {};
+  const questions = data.questions || [];
+  $("quiz-actions").classList.toggle("hidden", !data.has_quiz || data.graded);
+  practiceStatus("");
+
+  if (!data.has_quiz) {
+    $("quiz-body").innerHTML =
+      `<div class="hint">还没有题目。点上面的「出一份」，或者直接在对话里说"考考我"。</div>`;
+    $("quiz-score").textContent = "还没批改";
+    return;
+  }
+
+  $("quiz-body").innerHTML = questions
+    .map((q) => {
+      const mark = q.verdict
+        ? `<span class="verdict ${verdictClass(q.verdict)}">${escapeHtml(q.verdict)}</span>`
+        : "";
+      const note = q.verdict
+        ? `<div class="q-note">${escapeHtml(noteText(q))}</div>`
+        : "";
+      const saved = escapeHtml(practiceAnswers[q.index] || "");
+      return `<article class="q-card">
+        <div class="q-head"><span class="q-index">${q.index}</span><span class="q-prompt">${escapeHtml(q.prompt)}</span>${mark}</div>
+        <textarea class="q-answer" data-index="${q.index}" rows="2" placeholder="在这里答…"${q.verdict ? " readonly" : ""}>${saved}</textarea>
+        ${note}
+      </article>`;
+    })
+    .join("");
+
+  $("quiz-score").textContent = scoreLine(data);
+}
+
+async function startQuiz() {
+  const topic = $("quiz-topic").value.trim();
+  practiceStatus("她正在出题…");
+  try {
+    const data = await api("/api/practice/quiz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic }),
+    });
+    practiceData = data.practice;
+    Object.keys(practiceAnswers).forEach((key) => delete practiceAnswers[key]);
+    renderPractice();
+    if (!practiceData.has_quiz) {
+      // 她可能先说"我得先看看你在学什么"，也可能直接没出题——如实说，别装作出好了
+      $("quiz-body").innerHTML =
+        `<div class="hint error">她这次没出成题。去对话页看看她说了什么——多半是材料不够，或者她想先跟你聊聊方向。</div>`;
+    }
+  } catch (err) {
+    practiceStatus("");
+    $("quiz-body").innerHTML =
+      `<div class="hint error">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+async function gradeQuiz() {
+  const boxes = Array.from(document.querySelectorAll(".q-answer"));
+  const items = boxes.map((box) => {
+    const index = Number(box.dataset.index);
+    practiceAnswers[index] = box.value;   // 先本地留一份：批完还能对着看
+    return { index, answer: box.value };
+  });
+
+  practiceStatus("她正在批改…");
+  try {
+    const data = await api("/api/practice/grade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers: formatAnswers(items) }),
+    });
+    practiceData = data.practice;
+    renderPractice();
+  } catch (err) {
+    practiceStatus("");
+    $("quiz-grade-status").textContent = err.message || String(err);
+  }
+}
+
 const input = $("input");
 
 input.addEventListener("input", () => {
@@ -674,6 +784,8 @@ $("btn-summary").addEventListener("click", makeSummary);
 $("btn-new-session").addEventListener("click", newSession);
 $("btn-review").addEventListener("click", makeReview);
 $("btn-new-digest").addEventListener("click", makeDigest);
+$("btn-quiz").addEventListener("click", startQuiz);
+$("btn-grade").addEventListener("click", gradeQuiz);
 
 $("note-search").addEventListener("input", (e) => {
   notesState.query = e.target.value.trim();
@@ -689,4 +801,5 @@ loadNotes();
 loadPlan();
 loadProfile();
 loadDigests();
+loadPractice();
 input.focus();

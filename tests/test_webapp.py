@@ -77,6 +77,30 @@ def run_markdown(text: str) -> str:
     return result.stdout
 
 
+def run_quiz_helper(name: str, *args) -> str:
+    """在 node 里跑一遍 quiz.js 里的纯函数。
+
+    它和 markdown.js 一样不碰 DOM，所以能被这么测——那正是当初把它从 app.js
+    里拆出来的理由。其中 formatAnswers 最要紧：网页提交批改时我们是在"替用户
+    说一句话"，说成什么样直接决定她判得准不准。
+    """
+    script = (
+        f"const q = require({json.dumps((WEB_DIR / 'quiz.js').as_posix())});"
+        "const args = JSON.parse(process.argv[1]);"
+        f"process.stdout.write(String(q[{json.dumps(name)}](...args)));"
+    )
+    result = subprocess.run(
+        [NODE, "-e", script, json.dumps(list(args), ensure_ascii=False)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise AssertionError(result.stderr)
+    return result.stdout
+
+
 class WebAssetTest(unittest.TestCase):
     """不需要起服务器，也不需要 node。"""
 
@@ -84,6 +108,79 @@ class WebAssetTest(unittest.TestCase):
         # app.js 直接用 renderMarkdown，顺序反了就整页报错
         html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
         self.assertLess(html.index("markdown.js"), html.index("app.js"))
+
+    def test_practice_page_is_wired_up(self) -> None:
+        """加了 HTML 忘了接线，是这类页面最常见的错——四条都点一遍。
+
+        quiz.js 也必须在 app.js 之前：app.js 直接用 formatAnswers。
+        """
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        for needle in (
+            'data-view="practice"',
+            'id="view-practice"',
+            'id="btn-quiz"',
+            'id="btn-grade"',
+            'id="quiz-body"',
+        ):
+            self.assertIn(needle, html)
+        self.assertLess(html.index("quiz.js"), html.index("app.js"))
+
+    def test_every_element_app_js_reaches_for_really_exists(self) -> None:
+        """app.js 里写错一个 id，页面上就是"点了没反应"——最难查的那种错。
+
+        所以把所有字面量的 `$("xxx")` 抠出来，对着 index.html 核一遍。
+        动态拼的（`view-${name}` 这种）跳过。
+        """
+        import re
+
+        js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        ids = {name for name in re.findall(r'\$\("([^"$]+)"\)', js)}
+        self.assertTrue(ids)
+        # 有些元素是 app.js 自己渲染出来的（比如笔记详情里的删除按钮），
+        # 那种 id 在 app.js 的模板里出现就算数——但打错字的那种两边都对不上，照样会被抓。
+        missing = sorted(
+            name
+            for name in ids
+            if f'id="{name}"' not in html and f'id="{name}"' not in js
+        )
+        self.assertEqual(missing, [], f"没有找到这些 id：{missing}")
+
+
+@unittest.skipUnless(NODE, "需要 node 才能检查 / 运行前端脚本")
+class QuizScriptTest(unittest.TestCase):
+    """练习页的纯逻辑（web/quiz.js）。"""
+
+    def test_answers_go_over_with_question_numbers(self) -> None:
+        got = run_quiz_helper(
+            "formatAnswers",
+            [{"index": 1, "answer": "按字数切"}, {"index": 2, "answer": "   "}],
+        )
+        self.assertIn("第 1 题：按字数切", got)
+        # 没答的题也要发过去：漏着不发，成绩就只按答过的算，等于替他把不会的藏起来
+        self.assertIn("第 2 题：（没答）", got)
+
+    def test_verdict_maps_to_three_colours(self) -> None:
+        self.assertEqual(run_quiz_helper("verdictClass", "对"), "ok")
+        self.assertEqual(run_quiz_helper("verdictClass", "半对"), "half")
+        self.assertEqual(run_quiz_helper("verdictClass", "错"), "bad")
+        self.assertEqual(run_quiz_helper("verdictClass", "还没判"), "")
+
+    def test_note_joins_missing_and_comment(self) -> None:
+        got = run_quiz_helper(
+            "noteText", {"missing": ["边界处语义会被切断"], "comment": "方向对"}
+        )
+        self.assertEqual(got, "漏了：边界处语义会被切断；方向对")
+
+    def test_score_line_never_shows_a_zero_before_grading(self) -> None:
+        """还没批改时显示"还没批改"，不要显示 0 分——那会让人以为全错。"""
+        self.assertEqual(run_quiz_helper("scoreLine", {"graded": False}), "还没批改")
+        graded = run_quiz_helper(
+            "scoreLine",
+            {"graded": True, "total": 3, "right": 2, "half": 1, "wrong": 0, "percent": 83},
+        )
+        self.assertIn("对 2、半对 1、错 0", graded)
+        self.assertIn("83 分", graded)
 
 
 @unittest.skipUnless(NODE, "需要 node 才能检查 / 运行前端脚本")

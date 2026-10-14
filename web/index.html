@@ -21,6 +21,7 @@
     <button class="nav-item" data-view="notes" type="button">知识库</button>
     <button class="nav-item" data-view="profile" type="button">学习画像</button>
     <button class="nav-item" data-view="digest" type="button">AI 热点</button>
+    <button class="nav-item" data-view="practice" type="button">练习</button>
   </nav>
 
   <!-- ------------------------------------------------ 对话 -->
@@ -175,9 +176,41 @@
       <div class="hint">从左边选一篇笔记</div>
     </article>
   </section>
+  <!-- ------------------------------------------------ 练习 -->
+  <section class="view hidden" id="view-practice">
+    <div class="practice-main">
+      <div class="practice-head">
+        <input id="quiz-topic" type="text" placeholder="考什么？（留空就考最近在学的）">
+        <button class="new-session" id="btn-quiz" type="button">出一份</button>
+        <div class="muted" id="quiz-status"></div>
+      </div>
+      <div id="quiz-body"><div class="hint">读取中…</div></div>
+      <div class="actions hidden" id="quiz-actions">
+        <button class="new-session" id="btn-grade" type="button">提交批改</button>
+        <div class="muted" id="quiz-grade-status"></div>
+      </div>
+    </div>
+    <aside class="side">
+      <section class="panel">
+        <h2>这次成绩</h2>
+        <div class="body pct" id="quiz-score">读取中…</div>
+      </section>
+      <section class="panel">
+        <h2>判定是怎么来的</h2>
+        <div class="body">
+          对 / 半对 / 错三档。她对照每道题的参考要点判，不许放水——差一个关键点就是半对。
+          <br><br>
+          错题会自动写进「复盘记录」，错得多的主题会进画像的「薄弱点」。
+          <br><br>
+          <span class="muted">参考要点只给她批改用，页面上看不到——不然等于把答案给你。</span>
+        </div>
+      </section>
+    </aside>
+  </section>
 </div>
 
 <script src="/static/markdown.js"></script>
+<script src="/static/quiz.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
