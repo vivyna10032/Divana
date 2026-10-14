@@ -146,6 +146,48 @@ class WebAssetTest(unittest.TestCase):
         )
         self.assertEqual(missing, [], f"没有找到这些 id：{missing}")
 
+    def test_functions_app_js_borrows_really_exist(self) -> None:
+        """app.js 借用的那几个函数（在 markdown.js / quiz.js 里），必须真的存在。
+
+        这一类错最阴：写错一个字母、或者那个脚本没被加载，app.js 一跑到那行就
+        **整段停住**——后面所有监听器和启动代码全都不执行，页面上的表现是
+        "点了没反应"。浏览器只在 console 里小声报一句 ReferenceError，而没人会
+        去看 console。所以这里对着源码核一遍，不用起浏览器。
+
+        做法：把 app.js 里"调用了、但自己没定义"的名字抠出来，减掉 JS 语法关键字
+        和浏览器自带的，剩下的必须能在另外两个脚本里找到定义。
+        以后加新函数不用改这个测试——只有**对不上的名字**才会落进最后那个集合。
+        """
+        import re
+
+        pattern = r"function\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*="
+
+        def names(text: str) -> set[str]:
+            return {m[0] or m[1] for m in re.findall(pattern, text)}
+
+        app = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+        own = names(app)
+        # 前面那个 (?<![\w$.]) 是为了排除 `box.map(` 这种方法调用——只留裸调用的名字
+        called = {
+            m
+            for m in re.findall(r"(?<![\w$.])([A-Za-z_$][\w$]*)\s*\(", app)
+            if m not in own
+        }
+        builtin = {
+            # 正则把语法关键字也当成了函数名
+            "async", "await", "catch", "for", "if", "while", "switch", "return",
+            # 语言和浏览器自带的
+            "Boolean", "Error", "Number", "String", "Array", "Object", "JSON",
+            "TextDecoder", "URLSearchParams", "alert", "confirm", "fetch",
+            "encodeURIComponent", "decodeURIComponent", "parseInt", "isNaN",
+        }
+        borrowed: set[str] = set()
+        for filename in ("markdown.js", "quiz.js"):
+            borrowed |= names((WEB_DIR / filename).read_text(encoding="utf-8"))
+
+        missing = sorted(called - builtin - borrowed)
+        self.assertEqual(missing, [], f"app.js 调了、但没有任何脚本定义这些名字：{missing}")
+
 
 @unittest.skipUnless(NODE, "需要 node 才能检查 / 运行前端脚本")
 class QuizScriptTest(unittest.TestCase):
@@ -182,13 +224,32 @@ class QuizScriptTest(unittest.TestCase):
         self.assertIn("对 2、半对 1、错 0", graded)
         self.assertIn("83 分", graded)
 
+    def test_headline_tells_him_how_many_and_whether_graded(self) -> None:
+        """顶上一行要回答"我这份到底出好了没、答了没"——他每次都要问的问题。"""
+        self.assertEqual(run_quiz_helper("practiceHeadline", {}), "")
+
+        waiting = run_quiz_helper(
+            "practiceHeadline",
+            {"has_quiz": True, "topic": "RAG 基础", "total": 5, "created_at": "2026-10-14 18:09"},
+        )
+        self.assertIn("RAG 基础", waiting)
+        self.assertIn("5 题", waiting)
+        self.assertNotIn("分", waiting)
+
+        done = run_quiz_helper(
+            "practiceHeadline",
+            {"has_quiz": True, "topic": "RAG 基础", "total": 5, "graded": True, "percent": 60},
+        )
+        self.assertIn("已批改", done)
+        self.assertIn("60 分", done)
+
 
 @unittest.skipUnless(NODE, "需要 node 才能检查 / 运行前端脚本")
 class FrontendScriptTest(unittest.TestCase):
     """用 node 跑前端脚本。没有 node 就整体跳过。"""
 
     def test_syntax_is_valid(self) -> None:
-        for name in ("markdown.js", "app.js"):
+        for name in ("markdown.js", "quiz.js", "app.js"):
             result = subprocess.run(
                 [NODE, "--check", str(WEB_DIR / name)],
                 capture_output=True,
@@ -579,6 +640,25 @@ class WebAppTest(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("--green", response.read().decode())
 
+    def test_nothing_is_left_to_the_browser_cache(self) -> None:
+        """页面和静态文件每次回源校验；接口数据连存都别存。
+
+        少了这个头，浏览器会**自己猜**一个缓存期（常见算法是文件年龄的百分之十），
+        本地开发时就是几小时不问服务器。于是现象变成"我改了代码，页面还是老样子"
+        ——最坑的是它看起来像 bug 没修好，其实是根本没跑到新代码。
+        """
+        with self.get("/") as response:
+            response.read()
+        self.assertEqual(response.headers.get("Cache-Control"), "no-cache")
+
+        with self.get("/static/app.js") as response:
+            response.read()
+        self.assertEqual(response.headers.get("Cache-Control"), "no-cache")
+
+        with self.get("/api/practice") as response:
+            response.read()
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+
     def test_notes_list_returns_entries_and_all_tags(self) -> None:
         with self.get("/api/notes") as response:
             data = json.loads(response.read())
@@ -826,6 +906,72 @@ class WebAppTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.get("/api/nope")
         self.assertEqual(ctx.exception.code, 404)
+
+
+@unittest.skipUnless(NODE, "需要在 node 里跑前端脚本")
+class FrontendRunTest(unittest.TestCase):
+    """把前端三个脚本在假 DOM 里真跑一遍，只看一件事：**页面画不画得出来**。
+
+    这一层补的是静态检查的盲区。用户报过"点了没反应"——服务端、HTML、接口全对，
+    问题只在渲染那几行：id 检查查不出、语法检查也查不出，只有真执行才暴露。
+    """
+
+    HARNESS = Path(__file__).resolve().parent / "frontend_harness.mjs"
+
+    def run_page(self, payload: dict) -> dict:
+        result = subprocess.run(
+            [NODE, str(self.HARNESS)],
+            input=json.dumps(payload, ensure_ascii=False),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=60,
+            cwd=str(WEB_DIR.parent),
+        )
+        if result.returncode != 0:
+            raise AssertionError(f"假 DOM 里跑挂了：{result.stderr}")
+        return json.loads(result.stdout)
+
+    def test_a_saved_quiz_actually_paints(self) -> None:
+        """存过题的练习页，必须真的把题目画出来——这就是"点了没反应"的反面。"""
+        page = self.run_page(
+            {
+                "has_quiz": True,
+                "topic": "RAG 基础",
+                "created_at": "2026-10-14 18:09",
+                "total": 2,
+                "questions": [
+                    {"index": 1, "prompt": "切分为什么要重叠？"},
+                    {"index": 2, "prompt": "检索为什么要先粗排？"},
+                ],
+            }
+        )
+        self.assertEqual(page["crashed"], "")
+        self.assertEqual(page["banner"], "")  # 没出错就不该有红带
+        self.assertEqual(page["textareas"], 2)
+        self.assertIn("切分为什么要重叠？", page["quizBody"])
+        self.assertIn("RAG 基础", page["headline"])
+        self.assertEqual(page["score"], "还没批改")
+
+    def test_no_quiz_yet_tells_him_where_to_go(self) -> None:
+        """还没出题时是一句人话，不是空白、更不是一屏红字。"""
+        page = self.run_page({})
+        self.assertEqual(page["textareas"], 0)
+        self.assertIn("考考我", page["quizBody"])
+        self.assertEqual(page["headline"], "")
+
+    def test_a_broken_payload_reports_instead_of_going_silent(self) -> None:
+        """渲染炸了必须**说出来**。
+
+        以前这种情况页面上是一片安静，用户看到的就是"点了没反应"；现在题目区给出
+        原因、顶上顶出红带——出问题要能被看见，这比"不出错"重要得多。
+        """
+        page = self.run_page(
+            {"has_quiz": True, "topic": "X", "total": 1, "questions": "不是数组"}
+        )
+        self.assertEqual(page["crashed"], "")  # 整个脚本不能就此停住
+        self.assertIn("题目画不出来", page["quizBody"])
+        self.assertIn("前端出错", page["banner"])
 
 
 if __name__ == "__main__":

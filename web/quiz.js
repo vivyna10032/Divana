@@ -47,7 +47,28 @@ function scoreLine(practice) {
   );
 }
 
+/** 顶上那一行：现在考的是什么、几道题、批了没有。
+ *
+ * 空着不显示（还没出过题）；出过题就把"几题、答没答"讲清楚——
+ * 用户最常问的就是"我这份到底出好了没"。
+ */
+function practiceHeadline(practice) {
+  if (!practice || !practice.has_quiz) return "";
+
+  const when = practice.created_at ? `（${practice.created_at}）` : "";
+  const state = practice.graded
+    ? `已批改 · ${practice.percent} 分`
+    : `${practice.total} 题，等着你答`;
+  return `${practice.topic} · ${state}${when}`;
+}
+
 // 这样浏览器里当普通脚本用，node 里也能 require 进来测
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { formatAnswers, verdictClass, noteText, scoreLine };
+  module.exports = {
+    formatAnswers,
+    verdictClass,
+    noteText,
+    scoreLine,
+    practiceHeadline,
+  };
 }

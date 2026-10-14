@@ -25,10 +25,13 @@ from typing import TYPE_CHECKING, Any
 
 from dotenv import load_dotenv
 from starlette.applications import Starlette
+from starlette.datastructures import MutableHeaders
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .config import Settings, setup_agents_sdk
 from .contracts import AskEvent, SummarizeError, TextDelta, ToolCalled
@@ -56,6 +59,41 @@ SIDEBAR_NOTES = 5
 
 # 知识库页面一次最多列几篇
 NOTES_LIMIT = 200
+
+
+class FreshResponses:
+    """一个中间件：本机服务发出去的东西，一律别让浏览器偷偷攒着。
+
+    为什么非加不可——这是真踩过的坑：改完前端、刷新页面，看到的还是旧行为，
+    于是对着"没变化"的页面怀疑自己代码写错了。原因是响应里没有 `Cache-Control`
+    时，浏览器会**自己猜**一个缓存期（常见做法是按文件年龄的百分之十来算），
+    本地开发时那就是几小时以内不再问服务器。
+
+    - 页面和静态文件用 `no-cache`：不是"不缓存"，是"用之前先问一句变没变"。
+      没变就回 304，一个字节都不重传，所以并不慢。
+    - `/api/` 的数据用 `no-store`：测练习、看笔记这种数据，连存都别存。
+      你刚让她出了一份题，页面上还显示"还没有题目"，就是这类缓存干的。
+
+    上线给很多人用时才该反过来：静态文件配长缓存 + 文件名带哈希，
+    因为那时候省的是真金白银的带宽。本机一个人的服务，新鲜永远比省流量值钱。
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":  # websocket / lifespan 之类，原样放过去
+            await self.app(scope, receive, send)
+            return
+
+        value = "no-store" if scope.get("path", "").startswith("/api/") else "no-cache"
+
+        async def send_with_freshness(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["Cache-Control"] = value
+            await send(message)
+
+        await self.app(scope, receive, send_with_freshness)
 
 
 def service_of(request: Request) -> "DivanaService":
@@ -537,6 +575,7 @@ def create_app(
             Route("/api/ask", ask, methods=["POST"]),
             Route("/api/summary", summary, methods=["POST"]),
         ],
+        middleware=[Middleware(FreshResponses)],
         lifespan=lifespan,
     )
     app.state.service = service

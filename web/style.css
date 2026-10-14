@@ -315,3 +315,21 @@ button.ghost { background: #eef1ee; color: var(--text); font-weight: 500; }
 .verdict.ok { background: var(--green-soft); color: #14612f; }
 .verdict.half { background: var(--warn-soft); color: var(--warn); }
 .verdict.bad { background: var(--bad-soft); color: var(--bad); }
+
+/* 脚本报错的红带：平时不存在，一旦出现就顶在最上面，截图即可排查 */
+#page-error {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bad-soft); color: var(--bad);
+  border-bottom: 1px solid var(--bad);
+  padding: 10px 16px; font-size: 13px; line-height: 1.6;
+}
+
+/* 对话里那条"去练习页"的路 */
+.jump { margin-top: 10px; }
+.jump-btn {
+  font: inherit; font-size: 13px; cursor: pointer;
+  background: var(--green-soft); color: #14612f;
+  border: 1px solid var(--green); border-radius: 999px;
+  padding: 5px 14px;
+}
+.jump-btn:hover { background: #d7ece0; }

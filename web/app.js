@@ -2,6 +2,33 @@
 
 const $ = (id) => document.getElementById(id);
 
+/* 前端出错必须让人看见——这一条是被坑出来的。
+
+   练习页曾经"点了没反应"：服务端对、HTML 对、接口返回也对，就因为脚本里一处
+   拼错的名字，浏览器在 console 里小声抱怨一句，整段脚本就停在那儿了。而没人会
+   去开 console，于是现象只剩"没反应"三个字，查起来全靠猜。
+
+   所以这里接管全局错误：任何脚本报错都在页面顶上顶出一条红带，截图就能查。
+   能自己报错的页面，才配叫"能调试的页面"。
+*/
+function reportPageError(message) {
+  let bar = document.getElementById("page-error");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "page-error";
+    document.body.insertBefore(bar, document.body.firstChild);
+  }
+  bar.textContent = `前端出错：${message}　（把这一条截图发给 Codex 就能查）`;
+}
+
+window.addEventListener("error", (event) => {
+  const where = `${String(event.filename || "").split("/").pop()}:${event.lineno}`;
+  reportPageError(`${event.message} @ ${where}`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  reportPageError(String((event.reason && event.reason.message) || event.reason));
+});
+
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({}));
@@ -112,10 +139,29 @@ function addToolLine(tools, name, args) {
   scrollDown();
 }
 
+/* 她在对话里出完题 / 批改完，题目其实已经落到 data/practice.json 了，
+   但用户不会知道要去哪看。所以对话里直接给一条能点的路——
+   比在 prompt 里教她"记得提醒用户去练习页"可靠：
+   **能由程序确定做到的事，别交给模型去猜。**
+*/
+function addPracticeJump(box, label) {
+  const row = document.createElement("div");
+  row.className = "jump";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "jump-btn";
+  button.textContent = `${label} → 去练习页`;
+  button.addEventListener("click", () => showView("practice"));
+  row.appendChild(button);
+  box.appendChild(row);
+  scrollDown();
+}
+
 async function ask(text) {
   addUser(text);
   const { tools, answer: answerBox } = addAssistant();
   let buffer = "", answer = "", started = false;
+  let madeQuiz = false, gradedQuiz = false;
 
   const fail = (message) => {
     answerBox.innerHTML = `<div class="error">${escapeHtml(message)}</div>`;
@@ -161,6 +207,8 @@ async function ask(text) {
           scrollDown();
         } else if (name === "tool") {
           addToolLine(tools, payload.name, payload.arguments);
+          if (payload.name === "make_quiz") madeQuiz = true;
+          if (payload.name === "grade_quiz") gradedQuiz = true;
         } else if (name === "done") {
           // 以最终文本为准。流式过程中如果因为重试重发了片段（比如搜索接口抽风
           // 重试过一次），累积的 answer 会有重复段落——这里用官方结果覆盖掉。
@@ -175,6 +223,9 @@ async function ask(text) {
       }
     }
     if (!started) answerBox.innerHTML = '<div class="thinking">（她没有返回内容）</div>';
+    // 放在最后：上面那句"她没有返回内容"会把整个气泡重写掉，先加就会被冲掉
+    if (madeQuiz) addPracticeJump(answerBox, "题目出好了，在练习页");
+    if (gradedQuiz) addPracticeJump(answerBox, "批改好了，在练习页");
   } catch (err) {
     fail(`连接断了：${err}`);
   }
@@ -196,6 +247,7 @@ async function sendCurrent() {
     $("send").disabled = false;
     input.focus();
     loadSessions();   // 刷新时间戳和排序
+    loadPractice();   // 她刚在对话里出了题/批了改的话，练习页现在就是最新的
   }
 }
 
@@ -658,14 +710,24 @@ function practiceStatus(text) {
   const running = Boolean(text);
   $("btn-quiz").disabled = running;
   $("btn-grade").disabled = running;
-  $("quiz-status").textContent = running
-    ? text
-    : practiceData && practiceData.has_quiz
-      ? `${practiceData.topic}（${practiceData.created_at}）`
-      : "";
+  $("quiz-status").textContent = running ? text : practiceHeadline(practiceData);
+}
+
+/* 把答题框里已经敲进去的字先捞回内存，再重新画页面。
+
+   为什么要这一步：你正在练习页写答案，切去别的页再切回来、或者她刚好在对话里
+   动过练习（出题/批改），页面都会重画——不捞一遍就等于替你把答案删了。
+   出题那条路（startQuiz）故意**不**捞：新题目要的是空白卷。
+*/
+function harvestAnswers() {
+  document.querySelectorAll(".q-answer").forEach((box) => {
+    const index = Number(box.dataset.index);
+    if (index) practiceAnswers[index] = box.value;
+  });
 }
 
 async function loadPractice() {
+  harvestAnswers();
   try {
     practiceData = await api("/api/practice");
     renderPractice();
@@ -676,7 +738,18 @@ async function loadPractice() {
 }
 
 function renderPractice() {
-  const data = practiceData || {};
+  try {
+    paintPractice(practiceData || {});
+  } catch (err) {
+    // 渲染炸了也得说一声。以前这种错只会留在 console 里，页面上是一片安静——
+    // 用户看到的就是"点了没反应"，而我们什么都收不到。
+    const message = err.message || String(err);
+    $("quiz-body").innerHTML = `<div class="hint error">题目画不出来：${escapeHtml(message)}</div>`;
+    reportPageError(message);
+  }
+}
+
+function paintPractice(data) {
   const questions = data.questions || [];
   $("quiz-actions").classList.toggle("hidden", !data.has_quiz || data.graded);
   practiceStatus("");
@@ -710,7 +783,9 @@ function renderPractice() {
 
 async function startQuiz() {
   const topic = $("quiz-topic").value.trim();
-  practiceStatus("她正在出题…");
+  // 出题要跑一整轮：读计划、翻笔记、再写几道题——半分钟很正常。
+  // 上一版这儿只写"她正在出题…"，等的人以为按钮坏了，就跑去对话里问了。
+  practiceStatus("她正在出题…（要翻你的计划和笔记，大概半分钟）");
   try {
     const data = await api("/api/practice/quiz", {
       method: "POST",
