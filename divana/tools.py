@@ -260,6 +260,40 @@ class QuizAnswer(BaseModel):
 
 
 @function_tool
+def read_quiz(ctx: RunContextWrapper[DivanaContext]) -> str:
+    """看当前这一测的题目和参考要点。
+
+    什么时候用：**批改之前**如果手里没有题目和要点，就先读一遍再判。
+    典型场景是他换了会话（比如在网页上提交答案），那一轮出题的内容不在你眼前——
+    这时候凭印象给分就是放水。也可以用它把题目再念一遍给他。
+
+    返回里**带参考要点**，那是给你判分对照用的：**别念给他**（等于报答案）。
+    """
+    try:
+        state = ctx.context.practice.load()
+    except PracticeError as exc:
+        return f"现在没有题目：{exc}"
+
+    if state.graded:
+        stat = score(state.quiz, state.answers)
+        head = (
+            f"这一测已经批改过了：{stat.total} 题，对 {stat.right}、"
+            f"半对 {stat.half}、错 {stat.wrong}。"
+        )
+    else:
+        head = "这一测还没批改。"
+
+    lines = [f"当前这一测：{state.quiz.topic}（{state.quiz.created_at}）", head, ""]
+    for index, question in enumerate(state.quiz.questions, 1):
+        lines.append(f"{index}. {question.prompt}")
+        if question.points:
+            lines.append(f"   参考要点：{'；'.join(question.points)}")
+        if question.source:
+            lines.append(f"   出处：{question.source}")
+    return "\n".join(lines)
+
+
+@function_tool
 def make_quiz(
     ctx: RunContextWrapper[DivanaContext],
     topic: str,
@@ -417,6 +451,7 @@ def build_tools() -> list[Tool]:
         update_learner_profile,
         read_plan,
         update_plan,
+        read_quiz,
         make_quiz,
         grade_quiz,
         search_web,

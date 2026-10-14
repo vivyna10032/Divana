@@ -21,6 +21,7 @@ from .config import Settings
 from .context import DivanaContext, build_context
 from .contracts import (
     EventCallback,
+    PracticeView,
     Reply,
     Summary,
     TextDelta,
@@ -30,6 +31,7 @@ from .contracts import (
 from .digest import DigestInfo, list_digests, read_digest
 from .notes import NoteInfo
 from .plan import PlanProgress
+from .practice import build_view
 from .search import SearchResult
 from .session import (
     DEFAULT_SESSION_ID,
@@ -179,6 +181,25 @@ class DivanaService:
 
     def read_plan(self) -> str:
         return self.context.plan.read()
+
+    # ---------------------------------------------------------- 练习（考考我）
+    def practice_state(self) -> PracticeView:
+        """练习页要的全部内容。没有题目时是空 view，不是报错。"""
+        return build_view(self.context.practice)
+
+    async def start_quiz(self, topic: str = "") -> Reply:
+        """让她出一份小测。
+
+        **走的是同一条对话通路**：页面按钮和你在聊天里说"考考我"没有任何区别——
+        所以 prompt、工具、行为只有一份，不会出现"网页版偷偷弱一点"。
+        """
+        asked = f"考考我：{topic.strip()}" if topic.strip() else "考考我，就考我最近在学的"
+        return await self.ask(asked)
+
+    async def submit_answers(self, text: str) -> Reply:
+        """把答案交给她批改。同样走对话通路——判定必须由她（模型）做，
+        程序只能比字符串，那正是我们刚在评测里修掉的"词表判据"。"""
+        return await self.ask(f"我的答案：\n{text.strip()}")
 
     def plan_progress(self) -> PlanProgress:
         """路线图的完成情况：分阶段的里程碑列表 + 已完成/总数/百分比。"""

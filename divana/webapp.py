@@ -361,6 +361,80 @@ async def make_digest(request: Request) -> Response:
     return JSONResponse({"markdown": result.markdown, "path": str(result.path)})
 
 
+def _practice_payload(view) -> dict:
+    """把练习状态转成 JSON。抽出共享：出题/批改之后也要把刷新后的状态一起返回，
+    页面照着渲染就行，不用自己拼。"""
+    return {
+        "has_quiz": view.has_quiz,
+        "topic": view.topic,
+        "created_at": view.created_at,
+        "graded": view.graded,
+        "total": view.total,
+        "right": view.right,
+        "half": view.half,
+        "wrong": view.wrong,
+        "percent": view.percent,
+        "questions": [
+            {
+                "index": item.index,
+                "prompt": item.prompt,
+                "verdict": item.verdict,
+                "comment": item.comment,
+                "missing": list(item.missing),
+            }
+            for item in view.questions
+        ],
+    }
+
+
+async def practice(request: Request) -> Response:
+    """练习页要的全部内容。还没出题时返回空 view——页面该说"去对话里说考考我"，
+    而不是报错。"""
+    service = service_of(request)
+    return JSONResponse(_practice_payload(service.practice_state()))
+
+
+async def start_quiz(request: Request) -> Response:
+    """页面上的「出一份」按钮。
+
+    本质是替你说了一句"考考我 xxx"——走的是同一条对话通路，所以 prompt 和工具
+    只有一份。返回里带上刷新后的状态，页面直接照着渲染。
+    """
+    service = service_of(request)
+    payload = await request.json() if await request.body() else {}
+    topic = str(payload.get("topic", "")).strip()
+
+    try:
+        reply = await service.start_quiz(topic)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"{type(exc).__name__}: {exc}"}, status_code=500
+        )
+    return JSONResponse(
+        {"text": reply.text, "practice": _practice_payload(service.practice_state())}
+    )
+
+
+async def grade_quiz(request: Request) -> Response:
+    """页面上的「提交批改」。把答案合成一句话喂给她——**判定必须由她做**：
+    程序只能比字符串，那正是刚在评测里修掉的"词表判据"。"""
+    service = service_of(request)
+    payload = await request.json() if await request.body() else {}
+    answers = str(payload.get("answers", "")).strip()
+    if not answers:
+        return JSONResponse({"error": "答案不能是空的"}, status_code=400)
+
+    try:
+        reply = await service.submit_answers(answers)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"{type(exc).__name__}: {exc}"}, status_code=500
+        )
+    return JSONResponse(
+        {"text": reply.text, "practice": _practice_payload(service.practice_state())}
+    )
+
+
 async def sessions(request: Request) -> Response:
     """会话列表。current 标出当前正在聊的那个。"""
     service = service_of(request)
@@ -453,6 +527,9 @@ def create_app(
             Route("/api/digests", digests),
             Route("/api/digest", digest),
             Route("/api/digest/new", make_digest, methods=["POST"]),
+            Route("/api/practice", practice),
+            Route("/api/practice/quiz", start_quiz, methods=["POST"]),
+            Route("/api/practice/grade", grade_quiz, methods=["POST"]),
             Route("/api/sessions", sessions),
             Route("/api/sessions/new", new_session, methods=["POST"]),
             Route("/api/sessions/switch", switch_session, methods=["POST"]),

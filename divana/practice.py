@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .storage import atomic_write
+from .contracts import PracticeQuestionView, PracticeView
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -208,6 +209,42 @@ def render_review_entry(quiz: Quiz, answers: tuple[Answer, ...]) -> str:
         if answer.comment:
             lines.append(f"    - {answer.comment}")
     return "\n".join(lines)
+
+
+def build_view(store: PracticeStore) -> PracticeView:
+    """把"当前这一测"整理成页面要的形状。
+
+    没有题目时返回**空 view**（不是报错）：页面第一句话该是"去对话里说『考考我』"。
+    注意返回里**不含参考要点**——那是批改用的，发到页面上等于给答案。
+    """
+    try:
+        state = store.load()
+    except PracticeError:
+        return PracticeView()
+
+    judged = {item.index: item for item in state.answers}
+    questions = tuple(
+        PracticeQuestionView(
+            index=index,
+            prompt=question.prompt,
+            verdict=judged[index].verdict if index in judged else "",
+            comment=judged[index].comment if index in judged else "",
+            missing=judged[index].missing if index in judged else (),
+        )
+        for index, question in enumerate(state.quiz.questions, 1)
+    )
+    stat = score(state.quiz, state.answers)
+    return PracticeView(
+        has_quiz=True,
+        topic=state.quiz.topic,
+        created_at=state.quiz.created_at,
+        graded=state.graded,
+        questions=questions,
+        right=stat.right,
+        half=stat.half,
+        wrong=stat.wrong,
+        percent=stat.percent,
+    )
 
 
 class PracticeStore:

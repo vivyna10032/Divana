@@ -18,6 +18,7 @@ from divana.practice import (
     PracticeError,
     PracticeStore,
     Question,
+    build_view,
     check_answers,
     check_quiz,
     render_quiz,
@@ -156,6 +157,58 @@ class RenderTest(unittest.TestCase):
         )
         text = render_review_entry(self.quiz, answers)
         self.assertIn("这一测全对", text)
+
+
+class BuildViewTest(unittest.TestCase):
+    """练习页要的形状：把"当前这一测"整理成页面能直接渲染的数据。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.store = PracticeStore(Path(self._tmp.name) / "practice.json")
+
+    def test_no_quiz_gives_an_empty_view_not_an_error(self) -> None:
+        """还没出题时页面该说"去对话里说考考我"，不是一屏红色错误。"""
+        view = build_view(self.store)
+        self.assertFalse(view.has_quiz)
+        self.assertEqual(view.total, 0)
+        self.assertEqual(view.percent, 0)
+
+    def test_ungraded_quiz_lists_the_questions(self) -> None:
+        self.store.save_quiz(quiz([Question("一", ("甲",)), Question("二", ("乙",))]))
+        view = build_view(self.store)
+        self.assertTrue(view.has_quiz)
+        self.assertEqual([item.prompt for item in view.questions], ["一", "二"])
+        self.assertEqual([item.verdict for item in view.questions], ["", ""])
+        self.assertFalse(view.graded)
+
+    def test_view_never_carries_the_reference_points(self) -> None:
+        """要点是批改对照用的，发到页面上等于把答案给他。"""
+        self.store.save_quiz(quiz([Question("一", ("甲要点", "乙要点"))]))
+        view = build_view(self.store)
+        for item in view.questions:
+            self.assertFalse(hasattr(item, "points"))
+        self.assertNotIn("甲要点", repr(view))
+
+    def test_graded_view_carries_verdicts_and_score(self) -> None:
+        made = quiz([Question("一", ("甲",)), Question("二", ("乙",))])
+        self.store.save_quiz(made)
+        self.store.save_answers(
+            check_answers(
+                made,
+                [
+                    Answer(index=1, verdict="对"),
+                    Answer(index=2, verdict="错", comment="完全答反了", missing=("乙",)),
+                ],
+            )
+        )
+        view = build_view(self.store)
+        self.assertTrue(view.graded)
+        self.assertEqual((view.right, view.half, view.wrong), (1, 0, 1))
+        self.assertEqual(view.percent, 50)
+        self.assertEqual(view.questions[1].verdict, "错")
+        self.assertEqual(view.questions[1].missing, ("乙",))
+        self.assertEqual(view.questions[1].comment, "完全答反了")
 
 
 class StoreTest(unittest.TestCase):

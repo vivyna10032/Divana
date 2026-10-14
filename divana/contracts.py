@@ -54,6 +54,45 @@ class Reply:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class PracticeQuestionView:
+    """练习页上的一道题。
+
+    **故意不带参考要点**：要点是批改时对照用的，发到页面上就等于把答案给了他。
+    """
+
+    index: int
+    prompt: str
+    verdict: str = ""
+    """对 / 半对 / 错。空字符串表示还没批改。"""
+
+    comment: str = ""
+    missing: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PracticeView:
+    """练习页要的全部内容。
+
+    还没出题时返回一个**空 view**（而不是报错）——页面第一句话该是
+    "去对话里说『考考我』"，不是一屏红色错误。
+    """
+
+    has_quiz: bool = False
+    topic: str = ""
+    created_at: str = ""
+    graded: bool = False
+    questions: tuple[PracticeQuestionView, ...] = ()
+    right: int = 0
+    half: int = 0
+    wrong: int = 0
+    percent: int = 0
+
+    @property
+    def total(self) -> int:
+        return len(self.questions)
+
+
 @dataclass
 class Summary:
     """整理出来的总结：既有正文（用于显示），也有落盘位置。"""

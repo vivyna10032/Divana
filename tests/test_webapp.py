@@ -24,7 +24,15 @@ import urllib.request
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from divana.contracts import Reply, Summary, TextDelta, ToolCall, ToolCalled
+from divana.contracts import (
+    PracticeQuestionView,
+    PracticeView,
+    Reply,
+    Summary,
+    TextDelta,
+    ToolCall,
+    ToolCalled,
+)
 from divana.digest import DigestError, DigestInfo
 from divana.markdown_store import MarkdownStoreError
 from divana.notes import Note, NoteError, NoteInfo
@@ -160,6 +168,8 @@ class _FakeService:
             plan=_FakeStore("计划"),
         )
         self.closed = False
+        # 记录"网页替用户说了哪句话"——这是练习页那一层的核心断言点
+        self.asked: list[str] = []
         self._notes = [
             NoteInfo(
                 path=Path("vault/notes/2026-09-15-注意力机制.md"),
@@ -273,6 +283,38 @@ class _FakeService:
             note=Note(path=Path("vault/notes/x.md"), title="测试标题", tags=()),
         )
 
+    # ---------------------------------------------------------- 练习（考考我）
+    def practice_state(self):
+        """假的练习状态：两题、一题判了半对。"""
+        return PracticeView(
+            has_quiz=True,
+            topic="RAG 基础",
+            created_at="2026-10-14 10:00",
+            graded=True,
+            questions=(
+                PracticeQuestionView(
+                    index=1,
+                    prompt="切分为什么要重叠？",
+                    verdict="半对",
+                    comment="方向对，但没说为什么会切断语义",
+                    missing=("边界处的语义会被切断",),
+                ),
+                PracticeQuestionView(index=2, prompt="检索为什么要先粗排？"),
+            ),
+            right=0,
+            half=1,
+            wrong=0,
+            percent=25,
+        )
+
+    async def start_quiz(self, topic: str = ""):
+        self.asked.append(f"考考我：{topic}")
+        return Reply(text="出好了（假）")
+
+    async def submit_answers(self, text: str):
+        self.asked.append(f"我的答案：{text}")
+        return Reply(text="批改完了（假）")
+
     def close(self) -> None:
         self.closed = True
 
@@ -385,6 +427,41 @@ class WebAppTest(unittest.TestCase):
         return self._send(path, data=json.dumps(payload or {}).encode())
 
     # ------------------------------------------------------------------ 用例
+
+    # ------------------------------------------------------ 练习（考考我）
+
+    def test_practice_state_omits_the_reference_points(self) -> None:
+        """练习页拿到的题目里**不能有参考要点**——那是批改对照用的，发到页面上等于给答案。"""
+        with self.get("/api/practice") as response:
+            data = json.loads(response.read())
+        self.assertTrue(data["has_quiz"])
+        self.assertEqual(len(data["questions"]), 2)
+        for item in data["questions"]:
+            self.assertNotIn("points", item)
+        self.assertEqual(data["questions"][0]["verdict"], "半对")
+        self.assertEqual(data["questions"][0]["missing"], ["边界处的语义会被切断"])
+
+    def test_start_quiz_says_the_same_sentence_you_would_type(self) -> None:
+        """页面按钮和聊天里说"考考我"必须走同一条路——否则就会出现两套行为。"""
+        with self.post("/api/practice/quiz", {"topic": "RAG 的切分"}) as response:
+            data = json.loads(response.read())
+        self.assertIn("考考我", self.service.asked[-1])
+        self.assertIn("RAG 的切分", self.service.asked[-1])
+        self.assertTrue(data["practice"]["has_quiz"])
+
+    def test_grade_passes_the_answers_through(self) -> None:
+        with self.post(
+            "/api/practice/grade", {"answers": "第 1 题：按字数切就行"}
+        ) as response:
+            data = json.loads(response.read())
+        self.assertIn("我的答案", self.service.asked[-1])
+        self.assertIn("第 1 题：按字数切就行", self.service.asked[-1])
+        self.assertIn("practice", data)
+
+    def test_grade_rejects_empty_answers(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/practice/grade", {"answers": "   "})
+        self.assertEqual(ctx.exception.code, 400)
 
     def test_index_page_is_served(self) -> None:
         with self.get("/") as response:
