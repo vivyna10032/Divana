@@ -14,6 +14,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
+from divana.evals.calibrate import CapSuggestion, render_caps, suggest_cap, suggest_caps
 from divana.evals.cases import (
     Case,
     CaseError,
@@ -1101,6 +1102,67 @@ class ReportTest(unittest.TestCase):
         self.assertIn(
             format_money(expected), render_token_table([token_case], price=Price())
         )
+
+
+class CalibrateTest(unittest.TestCase):
+    """护栏校准：这条护栏是不是已经低于"按实测算该有的"了。
+
+    它存在的理由很具体：2026-10-15 一天之内，过期护栏假报了四次回归——
+    最少的一次只超 0.2%。每次都花掉一轮评测的钱和一轮读轨迹的时间，
+    去证明"她其实没做错"。
+    """
+
+    def test_suggestion_uses_allowed_calls_and_a_margin(self) -> None:
+        """按「允许的调用次数 × 单次实测 × 1.2」算，取整到千。"""
+        # 3 次调用 23421 → 单次 7807 → 3 × 7807 × 1.2 = 28105 → 28000
+        self.assertEqual(suggest_cap(measured=23421, calls=3, allowed_calls=3), 28000)
+        # 5 次调用 10000 → 单次 2000 → 5 × 2000 × 1.2 = 12000
+        self.assertEqual(suggest_cap(measured=10000, calls=5, allowed_calls=5), 12000)
+
+    def test_no_data_means_no_suggestion(self) -> None:
+        """没跑过的用例别瞎给数——一个凭空的建议比没有建议更糟。"""
+        self.assertEqual(suggest_cap(measured=0, calls=0, allowed_calls=3), 0)
+        self.assertEqual(suggest_cap(measured=500, calls=0, allowed_calls=3), 0)
+        self.assertEqual(suggest_cap(measured=500, calls=1, allowed_calls=None), 0)
+
+    def test_margin_only_bites_when_the_cap_is_below_the_suggestion(self) -> None:
+        loose = CapSuggestion("a", measured=1000, calls=1, per_call=1000, current=5000, suggested=1200)
+        tight = CapSuggestion("b", measured=1000, calls=1, per_call=1000, current=900, suggested=1200)
+        self.assertFalse(loose.is_tight)   # 只调高不调低：宽松的护栏不用管
+        self.assertTrue(tight.is_tight)
+
+    def test_table_lists_only_the_ones_that_need_a_change(self) -> None:
+        """20 行"没问题"没人读——只列要动的，其余只报数量。"""
+        loose = CapSuggestion("already-loose", measured=1000, calls=1, per_call=1000, current=5000, suggested=1200)
+        tight = CapSuggestion("needs-bump", measured=23421, calls=3, per_call=7807, current=16000, suggested=28000)
+        blank = CapSuggestion("never-ran", measured=0, calls=0, per_call=0, current=10000, suggested=0)
+
+        text = render_caps([loose, tight, blank], ran_at="2026-10-15 18:37")
+        self.assertIn("2026-10-15 18:37", text)
+        self.assertIn("needs-bump", text)
+        self.assertIn("28000", text)
+        self.assertNotIn("already-loose", text)  # 不用动的别列出来
+        self.assertIn("没有实测数据", text)       # 没数据要单独说一句
+        self.assertIn("never-ran", text)
+
+    def test_table_says_so_when_nothing_needs_changing(self) -> None:
+        loose = CapSuggestion("a", measured=1000, calls=1, per_call=1000, current=5000, suggested=1200)
+        self.assertIn("没有需要动的", render_caps([loose]))
+
+    def test_suggestions_come_from_a_run_summary(self) -> None:
+        """对着一次运行的结果逐条算——数据来自 baseline 或刚跑完的汇总。"""
+        made = [case(id="a", max_tokens=16000, max_llm_calls=3)]
+        summary = {"cases": {"a": {"tokens": 23421, "llm_calls": 3}}}
+        (item,) = suggest_caps(summary, made)
+        self.assertEqual((item.measured, item.calls, item.per_call), (23421, 3, 7807))
+        self.assertEqual(item.suggested, 28000)
+        self.assertTrue(item.is_tight)
+
+    def test_a_case_missing_from_the_run_gets_no_number(self) -> None:
+        made = [case(id="never-ran", max_tokens=10000, max_llm_calls=3)]
+        (item,) = suggest_caps({"cases": {}}, made)
+        self.assertFalse(item.has_data)
+        self.assertEqual(item.suggested, 0)
 
 
 class PricingTest(unittest.TestCase):

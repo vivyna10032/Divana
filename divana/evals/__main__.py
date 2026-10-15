@@ -27,6 +27,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from ..config import Settings, setup_agents_sdk
+from .calibrate import render_caps, suggest_caps
 from .cases import load_cases
 from .pricing import Price, format_money
 from .report import (
@@ -100,6 +101,11 @@ def main() -> None:
         "--history", action="store_true", help="只打台账（成功率和单次成本的趋势）"
     )
     parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="只打护栏校准表（对着 baseline 的实测数据算 max_tokens 该是多少）",
+    )
+    parser.add_argument(
         "--no-history", action="store_true", help="这次不往台账里记"
     )
     parser.add_argument(
@@ -114,6 +120,16 @@ def main() -> None:
     # "我只想知道这项目现在多准多贵"是个很自然的诉求，不该逼人先配好 key。
     if args.history:
         print(render_history(load_history()))
+        return
+
+    # 校准同理：读的是已经跑出来的数据，不需要 key，也不该起 agent 栈。
+    if args.calibrate:
+        baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+        if not baseline:
+            print("还没有 baseline，先全量跑一次评测（可以带 --save）")
+            return
+        cases = load_cases(Path(args.cases) if args.cases else None)
+        print(render_caps(suggest_caps(baseline, cases), ran_at=str(baseline.get("ran_at", ""))))
         return
 
     settings = Settings.from_env()
