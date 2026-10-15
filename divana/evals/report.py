@@ -238,6 +238,13 @@ def compare(baseline: dict, current: dict, *, subset: bool = False) -> list[str]
     # 用逐条的指纹而不是整套的：`--only` 只跑几条时，整套指纹必然不同，那是噪音。
     old_marks = baseline.get("fingerprints") or {}
     new_marks = current.get("fingerprints") or {}
+    if new_marks and not old_marks:
+        # 老 baseline 里没有这一列（判据指纹是后加的）。说一句，免得你以后
+        # 纳闷"为什么这次没检查尺子"——`--save` 一次之后它就开始生效了。
+        lines.append(
+            "[尺子] baseline 里还没有判据指纹（存它的时候这个功能还没有），"
+            "这次的结果带上指纹了——确认没问题后 `--save` 一次，下次起就能自动查尺子"
+        )
     moved = sorted(
         case_id
         for case_id, mark in new_marks.items()

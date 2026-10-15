@@ -29,7 +29,9 @@ from divana.evals.checks import (
     Outcome,
     Step,
     ToolCall,
+    attach_output,
     check_case,
+    tool_call_id,
     urls_in,
 )
 from divana.evals.report import (
@@ -313,6 +315,38 @@ class CheckCaseTest(unittest.TestCase):
     def test_token_ceiling_is_skipped_when_unknown(self) -> None:
         made = case(max_tokens=100)
         self.assertEqual(failed_labels(check_case(made, outcome(tokens=0))), [])
+
+    def test_token_ceiling_says_what_the_cap_should_be(self) -> None:
+        """护栏挂了要自己给出下一步：是护栏过期，还是她真绕圈了。
+
+        2026-10-15 有两条用例是这么挂的——行为完全正常（调用 3 次、上限 4 次），
+        只是护栏还按旧开销写的。只报一个"实际 24484"，下一步只能靠人再算一遍，
+        而人一算就容易开始怀疑她。所以这里把该有的数直接摊开。
+        """
+        made = case(max_tokens=24000, max_llm_calls=4)
+        three_calls = tuple(
+            LlmCall(turn=1, input_tokens=8000, output_tokens=161) for _ in range(3)
+        )
+        got = Outcome(text="回答", tokens=24484, llm_calls=three_calls)
+        finding = self.token_finding(check_case(made, got))
+        self.assertIn("超 2%", finding.detail)
+        self.assertIn("跑了 3 次调用", finding.detail)
+        self.assertIn("39000", finding.detail)  # 4 × 8161 × 1.2，取整到千
+
+    def test_no_calibration_noise_when_the_cap_holds(self) -> None:
+        """过了就别啰嗦——挂在过关的用例上的提示，只会让报告变吵。"""
+        made = case(max_tokens=40000, max_llm_calls=4)
+        got = Outcome(
+            text="回答",
+            tokens=24484,
+            llm_calls=(LlmCall(turn=1, input_tokens=8000, output_tokens=161),),
+        )
+        self.assertEqual(
+            self.token_finding(check_case(made, got)).detail, f"实际 {got.tokens}"
+        )
+
+    def token_finding(self, findings: list[Finding]) -> Finding:
+        return next(item for item in findings if item.label.startswith("token 不超过"))
 
     def test_expect_text(self) -> None:
         made = case(expect_text=["注意力"])
@@ -875,7 +909,56 @@ class TokenTest(unittest.TestCase):
         self.assertEqual(_llm_calls(result, 1)[0].tools, ("save_note",))
 
 
+class AttachmentTest(unittest.TestCase):
+    """工具调用和它的返回要配成对——配错了，整份轨迹就是假的。"""
+
+    def test_parallel_calls_do_not_swap_their_outputs(self) -> None:
+        """两个并行调用挨在一起时，第一个返回不能被挂到第二个上。
+
+        2026-10-15 的真事：轨迹里 `read_plan` 的返回写着"没找到…笔记"，
+        而 `search_notes` 的返回是计划正文——两个返回整体互换。
+        轨迹是排查问题的主工具，它串了行，后面所有判断都会跟着跑偏。
+        """
+        steps = [
+            Step(kind="turn", text="考考我"),
+            Step(kind="tool", name="search_notes", arguments='{"query":"*"}', call_id="c1"),
+            Step(kind="tool", name="read_plan", arguments="{}", call_id="c2"),
+        ]
+        attach_output(steps, "笔记搜索的结果", "c1")
+        attach_output(steps, "计划正文", "c2")
+        self.assertEqual(steps[1].output, "笔记搜索的结果")
+        self.assertEqual(steps[2].output, "计划正文")
+
+    def test_outputs_arriving_out_of_order_still_pair(self) -> None:
+        """返回的顺序万一是反的，配对也得对——认的是编号，不是先后。"""
+        steps = [
+            Step(kind="tool", name="search_notes", call_id="c1"),
+            Step(kind="tool", name="read_plan", call_id="c2"),
+        ]
+        attach_output(steps, "计划正文", "c2")
+        attach_output(steps, "笔记搜索的结果", "c1")
+        self.assertEqual(steps[0].output, "笔记搜索的结果")
+        self.assertEqual(steps[1].output, "计划正文")
+
+    def test_serial_calls_still_pair_without_an_id(self) -> None:
+        """适配器不给编号时退回老办法。真实串行是"调用→返回→调用→返回"，不会错位。"""
+        steps = [Step(kind="tool", name="read_plan")]
+        attach_output(steps, "计划正文")
+        steps.append(Step(kind="tool", name="read_github_repo"))
+        attach_output(steps, "仓库内容")
+        self.assertEqual([step.output for step in steps], ["计划正文", "仓库内容"])
+
+    def test_ids_are_read_from_objects_and_dicts(self) -> None:
+        """SDK 给对象，有些适配器给字典，两种都得认。"""
+        self.assertEqual(tool_call_id(SimpleNamespace(call_id="a1")), "a1")
+        self.assertEqual(tool_call_id({"call_id": "a2"}), "a2")
+        self.assertEqual(tool_call_id(None), "")
+        self.assertEqual(tool_call_id(SimpleNamespace()), "")
+
+
 class ReportTest(unittest.TestCase):
+    """报告的组装。"""
+
     def result(self, case_id: str, *, ok: bool, tokens: int = 100) -> CaseResult:
         findings = (Finding(ok, "某个断言", "" if ok else "实际不行"),)
         return CaseResult(

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .cases import Case, FileExpectation
 
@@ -45,6 +45,56 @@ class Step:
     name: str = ""
     arguments: str = ""
     output: str = ""
+    call_id: str = ""
+    """这一次调用的唯一编号。
+
+    为什么要它：模型可以**一次要求并行调两个工具**（实测常见：`search_notes` +
+    `read_plan` 一起来）。两次调用挨在一起，返回也是两次挨在一起——只按"最近一次
+    还没返回的调用"去挂，两个返回就会**互换**。2026-10-15 的轨迹里就是这个现象：
+    `read_plan` 的返回写着"没找到和…有关的笔记"，而 `search_notes` 的返回是计划正文。
+    轨迹是排查问题的主工具，它串了行，后面所有判断都会跟着跑偏。
+    """
+
+
+def tool_call_id(raw) -> str:
+    """从一次工具调用/返回里抠出它的编号。
+
+    两种形状都要接住：SDK 给的是对象（`.call_id`），有些适配器给的是字典
+    （`{"call_id": ...}`）。抠不到就返回空串，配对时退回老办法。
+
+    放在这个模块里（而不是 runner）：`checks` 不依赖 agent 栈，所以这段逻辑
+    能被离线测试盯住——而它恰恰错过一次，见 `Step.call_id` 的说明。
+    """
+    if raw is None:
+        return ""
+    found = getattr(raw, "call_id", None)
+    if not found and isinstance(raw, dict):
+        found = raw.get("call_id")
+    return str(found or "")
+
+
+def attach_output(steps: list[Step], output: str, call_id: str = "") -> None:
+    """把一次工具返回，挂回**它对应的那次调用**上。
+
+    先按 `call_id` 精确配对。为什么不能只按"最近一次还没返回的调用"去找：
+    模型可以一次要求并行调两个工具（实测常见：`search_notes` + `read_plan`），
+    两次调用挨在一起，两个返回按序回来——用"最近一次没返回的"去接，
+    第一个返回就挂到了第二个调用上，两个返回整体互换。
+
+    SDK 不给 call_id 时退回老办法：挂到最后一次还没返回的调用上。串行调用仍然对，
+    只有并行调用会错——那种情况下我们也确实无从判断，只能不猜。
+    """
+    if call_id:
+        for index in range(len(steps) - 1, -1, -1):
+            step = steps[index]
+            if step.kind == "tool" and step.call_id == call_id and not step.output:
+                steps[index] = replace(step, output=output)
+                return
+    for index in range(len(steps) - 1, -1, -1):
+        step = steps[index]
+        if step.kind == "tool" and not step.output:
+            steps[index] = replace(step, output=output)
+            return
 
 
 @dataclass(frozen=True)
@@ -246,14 +296,30 @@ def check_case(case: Case, outcome: Outcome) -> list[Finding]:
             )
         )
 
-    # 5. 上限：token
+    # 5. 上限：token ——成本护栏，不是行为断言
+    #
+    # 它挂了要分成两种，而且必须先分清，否则会白白去查她的轨迹：
+    #   · 她真绕圈了 → 看轨迹里多调了几次模型；
+    #   · **护栏过期了** → 每次调用都要重发全部工具定义，所以每加一个工具，
+    #     "最坏合法路径"就整体上移一次。2026-10-15 就有两条是这么挂的（只超 2%）。
+    # 所以这里顺手把"按本项目自己的校准规则该是多少"算出来——让这条失败自己
+    # 给出下一步动作，而不是只报一个数字。
     if case.max_tokens is not None and outcome.tokens:
+        over = outcome.tokens > case.max_tokens
+        detail = f"实际 {outcome.tokens}"
+        if over:
+            calls = len(outcome.llm_calls) or outcome.requests
+            if case.max_llm_calls and calls:
+                per_call = outcome.tokens // calls
+                # 规则见 README：调用上限 × 实测单次 × 约 20% 余量，只调高不调低
+                suggest = int(round(case.max_llm_calls * per_call * 1.2, -3))
+                detail += (
+                    f"（超 {round(100 * (outcome.tokens / case.max_tokens - 1))}%，"
+                    f"跑了 {calls} 次调用、单次均值 {per_call}；"
+                    f"按「调用上限 {case.max_llm_calls} × 单次 × 1.2」该是 {suggest}）"
+                )
         findings.append(
-            Finding(
-                outcome.tokens <= case.max_tokens,
-                f"token 不超过 {case.max_tokens}",
-                f"实际 {outcome.tokens}",
-            )
+            Finding(not over, f"token 不超过 {case.max_tokens}", detail)
         )
 
     # 6. 回答里必须出现某些词

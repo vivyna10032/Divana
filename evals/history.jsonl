@@ -1,0 +1,1 @@
+{"ran_at": "2026-10-15 16:28", "model": "deepseek-v4-pro", "commit": "7f1cb03", "cases_fingerprint": "2bb2fe5abfb3", "attempts": 1, "total": 20, "passed": 17, "pass_rate": 0.85, "tokens": 278113, "avg_tokens": 13906, "cost": 0.392612, "avg_cost": 0.019631}

@@ -18,7 +18,16 @@ from ..config import Settings
 from ..context import build_context
 from ..session import open_session
 from .cases import Case
-from .checks import FileSnapshot, LlmCall, Outcome, Step, ToolCall, check_case
+from .checks import (
+    FileSnapshot,
+    LlmCall,
+    Outcome,
+    Step,
+    ToolCall,
+    attach_output,
+    check_case,
+    tool_call_id,
+)
 from .report import AttemptCost, CaseResult
 
 
@@ -174,6 +183,7 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
                                 kind="tool",
                                 name=name,
                                 arguments=str(getattr(raw, "arguments", "") or ""),
+                                call_id=tool_call_id(raw),
                             )
                         )
                     elif isinstance(item, MessageOutputItem):
@@ -192,13 +202,7 @@ async def _run_once(settings: Settings, case: Case) -> Outcome:
                     elif isinstance(item, ToolCallOutputItem):
                         output = str(getattr(item, "output", "") or "")
                         outputs.append(output)
-                        # 工具的返回通常紧跟在它那次调用后面。挂到**最近的、还没有
-                        # 返回的那次调用**上，而不是简单地挂在上一步——万一 SDK 把
-                        # 返回和调用拆开了，这么写也不会错位。
-                        for index in range(len(steps) - 1, -1, -1):
-                            if steps[index].kind == "tool" and not steps[index].output:
-                                steps[index] = replace(steps[index], output=output)
-                                break
+                        attach_output(steps, output, tool_call_id(item.raw_item))
                 # 这一轮她说的话 = 按顺序拼起来的所有文本（没有就退回 final_output）
                 text = "\n\n".join(said) or str(result.final_output or "")
                 usage = getattr(result.context_wrapper, "usage", None)
