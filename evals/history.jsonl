@@ -1,1 +1,2 @@
 {"ran_at": "2026-10-15 16:28", "model": "deepseek-v4-pro", "commit": "7f1cb03", "cases_fingerprint": "2bb2fe5abfb3", "attempts": 1, "total": 20, "passed": 17, "pass_rate": 0.85, "tokens": 278113, "avg_tokens": 13906, "cost": 0.392612, "avg_cost": 0.019631}
+{"ran_at": "2026-10-15 17:41", "model": "deepseek-v4-pro", "commit": "7256432", "cases_fingerprint": "eb45c812c509", "attempts": 1, "total": 20, "passed": 18, "pass_rate": 0.9, "tokens": 266983, "avg_tokens": 13349, "cost": 0.376516, "avg_cost": 0.018826}
