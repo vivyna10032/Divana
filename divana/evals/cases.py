@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -393,3 +395,90 @@ def load_cases(path: Path | None = None) -> list[Case]:
             raise CaseError(f"用例 id 重复了：{case.id}")
         seen.add(case.id)
     return cases
+
+
+# ------------------------------------------------------------------ 判据指纹
+
+# 指纹取前 12 位十六进制就够了：它的用途是"两次跑的是不是同一把尺子"，
+# 不是防篡改。太长只会让报告里的数字没人愿意看。
+_FINGERPRINT_CHARS = 12
+
+
+def _fingerprint_parts(case: Case) -> list[str]:
+    """把一条用例里**所有会影响通过与否的东西**摊成文本行。
+
+    怎么判断一个字段该不该算进来？问一句：**改它会不会改变判定结果**。
+    会 → 算进去；不会 → 不算。所以：
+
+    - `note`、`label` 不算：那是写给人看的说明，改措辞不影响判分。
+      把它们算进去的后果很实际——你润色一段注释，报告就喊一次"尺子变了"，
+      喊上三次之后就没人看这个警告了，等到真改判据时反而被忽略。
+    - `given_plan` / `given_profile` / `given_settings` 要算：它们决定她看到什么
+      材料、工具可不可用，是**难度本身**的一部分。
+    - 列表类的字段排序后拼：`expect_pattern` 是"每条都要命中"，顺序不影响结果，
+      所以重排一下不该报警。反过来，判据改了内容，指纹必然变。
+    """
+    parts = [f"id={case.id}", f"q={case.question}"]
+    parts += [f"follow={text}" for text in case.follow_ups]
+
+    for label, mapping in (
+        ("profile", case.given_profile),
+        ("plan", case.given_plan),
+        ("settings", case.given_settings),
+    ):
+        parts += [f"given.{label}.{key}={mapping[key]}" for key in sorted(mapping)]
+
+    parts.append(f"expect_tools={','.join(sorted(case.expect_tools))}")
+    parts.append(f"forbid_tools={','.join(sorted(case.forbid_tools))}")
+    parts.append(f"expect_text={','.join(sorted(case.expect_text))}")
+    parts.append(f"expect_any={','.join(sorted(case.expect_any))}")
+    parts += [f"pattern={item.pattern}" for item in sorted(case.expect_pattern, key=lambda p: p.pattern)]
+    parts += [
+        f"tool_output={item.pattern}"
+        for item in sorted(case.expect_tool_output, key=lambda p: p.pattern)
+    ]
+
+    for item in sorted(case.expect_files, key=lambda f: f.path):
+        parts.append(
+            "file."
+            + "|".join(
+                (
+                    item.path,
+                    f"exists={item.exists}",
+                    "contains=" + ",".join(sorted(item.contains)),
+                    "not_contains=" + ",".join(sorted(item.not_contains)),
+                    f"pattern={item.pattern}",
+                    f"not_pattern={item.not_pattern}",
+                )
+            )
+        )
+
+    parts.append(f"max_tool_calls={case.max_tool_calls}")
+    parts += [
+        f"max_per_tool.{name}={case.max_calls_per_tool[name]}"
+        for name in sorted(case.max_calls_per_tool)
+    ]
+    parts.append(f"max_llm_calls={case.max_llm_calls}")
+    parts.append(f"max_tokens={case.max_tokens}")
+    parts.append(f"check_citations={case.check_citations}")
+    return parts
+
+
+def fingerprint(case: Case) -> str:
+    """一条用例的判据指纹。"""
+    text = "\n".join(_fingerprint_parts(case))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:_FINGERPRINT_CHARS]
+
+
+def fingerprints(cases: Iterable[Case]) -> dict[str, str]:
+    """{用例 id: 指纹}。"""
+    return {case.id: fingerprint(case) for case in cases}
+
+
+def cases_fingerprint(cases: Iterable[Case]) -> str:
+    """整套题集的指纹：哪几条、每条判据是什么，变了它就变。
+
+    历史台账（`evals/history.jsonl`）上记的是它——**分数能不能横向比，全看这一列**。
+    """
+    text = "\n".join(f"{case_id}:{mark}" for case_id, mark in sorted(fingerprints(cases).items()))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:_FINGERPRINT_CHARS]

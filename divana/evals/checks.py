@@ -65,6 +65,10 @@ class LlmCall:
     # 推理模型的"思考"也算 output、也要计费。有些服务商不报这个数（那就是 0），
     # 报的时候就单独列出来——不然 output 看着大，你会以为是话多。
     reasoning_tokens: int = 0
+    # input 里**被缓存命中**的那部分（是 input_tokens 的子集，不是额外的一份）。
+    # 它的单价通常只有未命中的十分之一，所以"输入很长"到底贵不贵，得看这一列。
+    # 服务商不报就是 0——那时整份 input 按未命中价算，偏保守，不会低估成本。
+    cached_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:

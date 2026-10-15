@@ -92,6 +92,16 @@ def _llm_calls(result, turn: int) -> list[LlmCall]:
                     )
                     or 0
                 ),
+                # 缓存命中的那部分 input。服务商（或适配器）不报就是 0，
+                # 计价时会按未命中价算——宁可高估，不要低估。
+                cached_tokens=int(
+                    getattr(
+                        getattr(usage, "input_tokens_details", None),
+                        "cached_tokens",
+                        0,
+                    )
+                    or 0
+                ),
             )
         )
     if made:

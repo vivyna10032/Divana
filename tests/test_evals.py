@@ -14,7 +14,14 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
-from divana.evals.cases import Case, CaseError, load_cases, parse_case
+from divana.evals.cases import (
+    Case,
+    CaseError,
+    cases_fingerprint,
+    fingerprint,
+    load_cases,
+    parse_case,
+)
 from divana.evals.checks import (
     FileSnapshot,
     Finding,
@@ -28,11 +35,17 @@ from divana.evals.checks import (
 from divana.evals.report import (
     AttemptCost,
     CaseResult,
+    append_history,
+    cached_tokens_of,
     compare,
+    cost_of,
     estimate_tokens,
     load_baseline,
+    load_history,
+    history_record,
     render_report,
     render_attempts_table,
+    render_history,
     render_token_breakdown,
     render_token_table,
     render_trajectory,
@@ -41,6 +54,7 @@ from divana.evals.report import (
     token_totals,
     write_trajectory,
 )
+from divana.evals.pricing import CURRENCY, Price, format_money, format_rate
 from divana.notes import render_note
 
 
@@ -924,7 +938,7 @@ class ReportTest(unittest.TestCase):
 
     def test_render_report_shows_failed_checks_and_details(self) -> None:
         text = render_report(summarize([self.result("a", ok=False)], model="m", commit="c"))
-        self.assertIn("通过 0 / 1", text)
+        self.assertIn("端到端成功率 0/1", text)
         self.assertIn("某个断言", text)
         self.assertIn("实际：实际不行", text)
 
@@ -947,6 +961,291 @@ class ReportTest(unittest.TestCase):
 
     def test_missing_baseline_returns_none(self) -> None:
         self.assertIsNone(load_baseline(Path("不存在的 baseline.json")))
+
+    def test_summarize_records_rate_money_and_ruler(self) -> None:
+        """一次运行的汇总里要能直接读到：成功率、钱、判据指纹。
+
+        判据指纹得传 `cases` 才有——所以这里顺带盯住"忘了传"这件事：
+        没有指纹，历史台账里就没法证明两次跑的是同一把尺子。
+        """
+        summary = summarize(
+            [self.result("a", ok=True)],
+            model="m",
+            cases=[case(id="a")],
+        )
+        self.assertEqual(summary["pass_rate"], 1.0)
+        self.assertEqual(summary["attempts"], 1)
+        self.assertIn("cost", summary)
+        self.assertIn("price", summary)
+        self.assertEqual(summary["fingerprints"]["a"], fingerprint(case(id="a")))
+        self.assertTrue(summary["cases_fingerprint"])
+
+    def test_compare_reports_that_the_ruler_moved(self) -> None:
+        """尺子动过要明说。
+
+        分数掉了可能是她退化了，也可能是我们悄悄放宽/收紧了断言——这两件事在报告里
+        长得一模一样。所以逐条比判据指纹，把"尺子动过"单独标出来。
+        """
+        before = summarize([self.result("a", ok=True)], cases=[case(id="a", max_tool_calls=5)])
+        after = summarize([self.result("a", ok=True)], cases=[case(id="a", max_tool_calls=8)])
+        diff = compare(before, after)
+        self.assertTrue(any("[尺子]" in line for line in diff))
+        self.assertTrue(any("a" in line for line in diff if "[尺子]" in line))
+
+    def test_compare_stays_quiet_when_the_ruler_is_untouched(self) -> None:
+        """没动就是没动——一个天天喊的警告等于没有警告。"""
+        before = summarize([self.result("a", ok=True)], cases=[case(id="a", max_tool_calls=5)])
+        after = summarize([self.result("a", ok=True)], cases=[case(id="a", max_tool_calls=5)])
+        self.assertFalse(any("[尺子]" in line for line in compare(before, after)))
+
+    def test_cost_is_visible_per_case_and_in_total(self) -> None:
+        """每条的钱、整轮的钱都要看得见——报告里只给 token 是不好拿去说事的。"""
+        token_case = CaseResult(
+            case_id="a",
+            outcome=Outcome(
+                text="回答",
+                llm_calls=(
+                    LlmCall(turn=1, input_tokens=10_000, output_tokens=2_000),
+                ),
+            ),
+            findings=(Finding(True, "某个断言", ""),),
+        )
+        summary = summarize([token_case], model="m", price=Price())
+        expected = Price().cost(input_tokens=10_000, output_tokens=2_000)
+        self.assertAlmostEqual(summary["cost"], round(expected, 6))
+        self.assertAlmostEqual(summary["cases"]["a"]["cost"], round(expected, 6))
+        self.assertIn("成本", render_report(summary))
+        self.assertIn(
+            format_money(expected), render_token_table([token_case], price=Price())
+        )
+
+
+class PricingTest(unittest.TestCase):
+    """token 换算成钱。纯算术，但算错了整份台账就不可信——所以单独测。"""
+
+    def test_cached_input_goes_at_the_cheap_rate(self) -> None:
+        """命中缓存的那部分 input 走便宜价。
+
+        这是"输入很长"到底贵不贵的关键：人格 prompt 和工具定义每次调用都重发，
+        但它们基本都命中缓存，按未命中价算会把它算贵十倍。
+        """
+        price = Price(input_per_million=4, output_per_million=12, cached_per_million=0.5)
+        got = price.cost(input_tokens=10_000, output_tokens=2_000, cached_tokens=8_000)
+        self.assertAlmostEqual(got, (2_000 * 4 + 8_000 * 0.5 + 2_000 * 12) / 1_000_000)
+
+    def test_cached_can_never_exceed_input(self) -> None:
+        """服务商报的命中数比 input 还大时不至于算出负数。"""
+        price = Price(input_per_million=4, output_per_million=12, cached_per_million=0.5)
+        self.assertEqual(
+            price.cost(input_tokens=100, cached_tokens=999),
+            price.cost(input_tokens=100, cached_tokens=100),
+        )
+
+    def test_nothing_used_is_free(self) -> None:
+        self.assertEqual(Price().cost(), 0.0)
+        self.assertEqual(format_money(0), f"{CURRENCY}0")
+
+    def test_env_overrides_and_the_source_is_visible(self) -> None:
+        """价目表的**来源**要写进报告：一个不知道单价的成本数字没人敢引用。"""
+        self.assertTrue(Price().is_default)
+        given = Price.from_env({"DIVANA_PRICE_IN": "1", "DIVANA_PRICE_OUT": "2"})
+        self.assertFalse(given.is_default)
+        self.assertIn(".env", given.describe())
+        self.assertEqual(given.input_per_million, 1)
+        self.assertEqual(given.output_per_million, 2)
+        # 只填了一个，另一个照样有默认值——不能变成 0（那等于白送）
+        self.assertEqual(given.cached_per_million, Price().cached_per_million)
+
+    def test_a_typo_in_the_price_falls_back(self) -> None:
+        """.env 里写错一个价，不该让评测跑不起来，也不该按 0 元记成"免费"。"""
+        given = Price.from_env({"DIVANA_PRICE_IN": "四块", "DIVANA_PRICE_OUT": "-1"})
+        self.assertEqual(given.input_per_million, Price().input_per_million)
+        self.assertEqual(given.output_per_million, Price().output_per_million)
+
+    def test_money_and_rate_print_on_a_gbk_console(self) -> None:
+        """货币符号必须能被 GBK 编出来。
+
+        中文 Windows 的控制台是 cp936：报告里出现一个它编不出的字符（半角 ¥ 就不行），
+        `print` 会抛 UnicodeEncodeError——不是显示成问号，是**整条命令崩掉**，
+        报告一个字都看不到。一个符号带走整份报告，代价太大。
+        """
+        CURRENCY.encode("gbk")
+        format_money(0.036).encode("gbk")
+        format_rate(19, 20).encode("gbk")
+
+    def test_rate_keeps_the_sample_size(self) -> None:
+        """百分比要连着分子分母一起给——只给百分比会把样本量藏起来。"""
+        self.assertEqual(format_rate(19, 20), "19/20（95%）")
+        self.assertEqual(format_rate(0, 0), "—")
+
+
+class FingerprintTest(unittest.TestCase):
+    """判据指纹：分数变了，是她退化了，还是尺子被挪了？"""
+
+    def test_same_case_same_mark(self) -> None:
+        self.assertEqual(fingerprint(case()), fingerprint(case()))
+
+    def test_changing_an_assertion_moves_the_mark(self) -> None:
+        """放宽、收紧、换材料都算动了尺子——这正是要抓的事。"""
+        base = case(max_tool_calls=4)
+        self.assertNotEqual(fingerprint(base), fingerprint(case(max_tool_calls=6)))
+        self.assertNotEqual(
+            fingerprint(base),
+            fingerprint(case(max_tool_calls=4, expect_tools=["read_plan"])),
+        )
+        self.assertNotEqual(
+            fingerprint(base),
+            fingerprint(
+                case(
+                    max_tool_calls=4,
+                    expect_pattern=[{"pattern": "没搜到", "label": "如实说"}],
+                )
+            ),
+        )
+        self.assertNotEqual(
+            fingerprint(base),
+            fingerprint(case(max_tool_calls=4, question="换成另一问")),
+        )
+        self.assertNotEqual(
+            fingerprint(base),
+            fingerprint(case(max_tool_calls=4, given={"plan": {"路线图": "阶段一"}})),
+        )
+
+    def test_human_words_do_not_move_the_mark(self) -> None:
+        """只改写给人看的字（note / label）不该报警。
+
+        算进去的后果很实际：润色一段注释就喊一次"尺子变了"，喊上三次就没人看这个
+        警告了——等真改了判据，反而被忽略。
+        """
+        annotated = case(
+            expect_tools=["read_plan"],
+            expect_pattern=[{"pattern": "没搜到", "label": "如实说没搜到"}],
+            note="这条来自 2026-09-20 那次真实误判",
+        )
+        renamed = case(
+            expect_tools=["read_plan"],
+            expect_pattern=[{"pattern": "没搜到", "label": "换了个说法"}],
+            note="注释也重写了一遍",
+        )
+        self.assertEqual(fingerprint(annotated), fingerprint(renamed))
+
+    def test_order_of_assertions_does_not_matter(self) -> None:
+        """expect_pattern 是"每条都要命中"，顺序不影响结果，重排一下不该报警。"""
+        first = case(expect_pattern=[{"pattern": "甲"}, {"pattern": "乙"}])
+        second = case(expect_pattern=[{"pattern": "乙"}, {"pattern": "甲"}])
+        self.assertEqual(fingerprint(first), fingerprint(second))
+
+    def test_the_whole_set_has_one_mark(self) -> None:
+        self.assertEqual(cases_fingerprint([case()]), cases_fingerprint([case()]))
+        self.assertNotEqual(
+            cases_fingerprint([case()]),
+            cases_fingerprint([case(), case(id="other")]),
+        )
+
+
+class HistoryTest(unittest.TestCase):
+    """台账：成功率和单次成本的趋势。**这张表才是能拿出去说的东西。**"""
+
+    def record(self, **overrides) -> dict:
+        base = {
+            "ran_at": "2026-10-15 10:00",
+            "model": "m",
+            "commit": "abc1234",
+            "cases_fingerprint": "ffff0000",
+            "attempts": 1,
+            "total": 20,
+            "passed": 19,
+            "pass_rate": 0.95,
+            "tokens": 168_000,
+            "avg_tokens": 8_400,
+            "cost": 0.152,
+            "avg_cost": 0.0076,
+        }
+        return base | overrides
+
+    def test_append_then_read_back(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "history.jsonl"
+
+        append_history(self.record(), path)
+        append_history(
+            self.record(ran_at="2026-10-15 11:00", passed=20, pass_rate=1.0), path
+        )
+        records = load_history(path)
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[-1]["passed"], 20)
+
+    def test_broken_lines_are_skipped(self) -> None:
+        """台账是附录：写坏一行不该让整份读不出来。"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "history.jsonl"
+        path.write_text(
+            '{"ran_at": "t1", "passed": 1, "total": 1}\n'
+            "这不是 JSON\n"
+            "\n"
+            '{"ran_at": "t2", "passed": 0, "total": 1}\n',
+            encoding="utf-8",
+        )
+        self.assertEqual([item["ran_at"] for item in load_history(path)], ["t1", "t2"])
+
+    def test_missing_history_is_not_an_error(self) -> None:
+        self.assertEqual(load_history(Path("不存在的台账.jsonl")), [])
+        self.assertIn("还是空的", render_history([]))
+
+    def test_table_shows_the_trend(self) -> None:
+        """要能一眼看出"成功率没动、钱少了两成"这种变化。"""
+        text = render_history(
+            [
+                self.record(ran_at="2026-10-14 10:00", avg_cost=0.01, cost=0.2),
+                self.record(ran_at="2026-10-15 10:00", avg_cost=0.008, cost=0.16),
+            ]
+        )
+        self.assertIn("2026-10-14 10:00", text)
+        self.assertIn("19/20（95%）", text)
+        self.assertIn("-20%", text)
+
+    def test_trend_refuses_to_compare_two_different_rulers(self) -> None:
+        """题集指纹不同就明说不可比——这正是记指纹的用处。"""
+        text = render_history(
+            [
+                self.record(cases_fingerprint="aaaa1111"),
+                self.record(cases_fingerprint="bbbb2222"),
+            ]
+        )
+        self.assertIn("不可直接比", text)
+
+    def test_the_record_keeps_only_the_columns_that_trend(self) -> None:
+        record = history_record(
+            summarize(
+                [
+                    CaseResult(
+                        case_id="a",
+                        outcome=Outcome(text="回答", tokens=100),
+                        findings=(Finding(True, "某个断言", ""),),
+                    )
+                ],
+                model="m",
+            )
+        )
+        self.assertEqual(
+            sorted(record),
+            [
+                "attempts",
+                "avg_cost",
+                "avg_tokens",
+                "cases_fingerprint",
+                "commit",
+                "cost",
+                "model",
+                "pass_rate",
+                "passed",
+                "ran_at",
+                "tokens",
+                "total",
+            ],
+        )
 
 
 if __name__ == "__main__":
