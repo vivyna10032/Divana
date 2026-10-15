@@ -614,6 +614,10 @@ python -m divana.evals --only repo-read,paper-read
 python -m divana.evals --history       # 只看台账：成功率和单次成本的趋势（不花钱）
 ```
 
+> `--only` 时**不会**存 baseline（`--save` 会被忽略并说明原因）：那份 baseline
+> 只会有这次跑过的几条，其余用例的历史记录会被抹掉，下次跑全量时它们会显示成
+> `[新增]`，看着像一次大改。要存就等一次全量跑。
+
 用例在 `evals/cases.yaml`。一条只写四件事：**给她什么、必须做什么、禁止做什么、上限多少**。
 
 ```yaml

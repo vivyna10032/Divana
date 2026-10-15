@@ -213,9 +213,19 @@ def main() -> None:
         print("（同名会被这次覆盖；这是运行产物，不进版本控制）")
 
     if args.save:
-        saved = save_baseline(summary, baseline_path)
-        print()
-        print(f"已存成 baseline：{saved}")
+        if args.only:
+            # `--only X --save` 会把 baseline 写成"只有 X 那几条"——其余用例的
+            # 通过记录被**抹掉**，而你下次跑全量时它们会显示成 [新增]，
+            # 看起来像一次大改。这种事不该靠人记住，所以直接拒绝。
+            print()
+            print(
+                "（--only 时不存 baseline：那份 baseline 只会有这次跑过的几条，"
+                "其余用例的历史会被抹掉。要存就等一次全量跑）"
+            )
+        else:
+            saved = save_baseline(summary, baseline_path)
+            print()
+            print(f"已存成 baseline：{saved}")
 
     # 台账只记**全量**跑：--only 的半截数据混进去，趋势线立刻失真
     # （成功率会凭跑了几条上下跳，看着像她在退化）。
