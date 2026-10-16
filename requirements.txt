@@ -1,17 +1,29 @@
-openai-agents
-python-dotenv
+# 直接依赖，**版本钉死**。
+#
+# 为什么钉：这是个 agent 项目，最怕的是框架升级改了接口——上游一个小版本换掉了
+# Runner 的返回值形状，你会在某次重装环境之后突然全线报错，而原因很难查。
+# 钉住之后，"这一版跑得起来"才是可复现的一句话，而不是一句印象。
+#
+# 怎么升级：改下面对应的版本号，然后在干净环境里跑一遍 528 条离线测试 + 一次全量评测，
+# 通过了再提交。**别直接 pip install -U**——那样你连自己升到了哪一版都说不清。
+#
+# 完整快照（42 个包，含这些的间接依赖）见 requirements.lock；那个是单机复现用的，
+# 里面含平台专有的包，日常安装和 CI 都只用这个文件。
+
+openai-agents==0.22.2
+python-dotenv==1.2.3
 
 # DeepSeek 走的是 OpenAI 兼容接口：config.py 要用它建客户端，
 # service.py 还直接用了 openai.types.responses 里的流式事件类型。
 # 它目前是 openai-agents 间接带进来的，但按下面的规矩，直接 import 就得自己写。
-openai
+openai==3.13.0
 
 # 网页版用到。其实 openai-agents 会通过 mcp 把它们间接带进来，但——
 # 你**直接 import 的包就该写在自己的清单里**，否则哪天上游不再需要它，
 # 你的网页版会在某次重装环境后突然起不来，而原因很难查。
-starlette
-uvicorn
+starlette==1.6.0
+uvicorn==0.52.4
 
 # 评测用例是 YAML 写的（人读人改，比 JSON 好用）。它是被间接带进来的，
 # 但我们直接 import 了，所以得写在自己的清单里。
-pyyaml
+PyYAML==6.0.3

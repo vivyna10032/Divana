@@ -1,0 +1,62 @@
+name: 离线测试
+
+# 只跑**不花钱、不联网**的那一层：528 条离线单元测试。
+#
+# 故意不跑评测（evals/cases.yaml，20 条用例）：它要真调模型，一轮约 0.37 元，
+# 而且结果本身是概率性的——放进 CI 就变成"每次 push 都可能红，还得盯着看到底是
+# 真挂还是抖动"。它是**发布前手跑**的清单，不是 push 的门槛。
+# 一句话：能自动的自动，要花钱的留给人决定。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:      # 也可以手动点一下跑
+
+# 同一分支连着推两次时取消上一次：省 runner，也省得两条红色的日志交叉着看
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 这份工作流只需要读代码（最小权限）
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # 只跑 Linux：快、稳。项目主要运行在 Windows 上，但离线测试里**没有平台假设**
+    # ——文件一律走临时目录，编码显式写 UTF-8，所以 Linux 全绿就说明代码是干净的。
+    # （真要覆盖 Windows，把 windows-latest 加进下面的 matrix 就行。）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.13 是 README 里写的最低版本：CI 跑它，等于顺手守住"最低版本也能跑"这条线。
+        # 开发机上是 3.14.2（见 .venv/pyvenv.cfg）。
+        python-version: ["3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: 装依赖（版本已钉死）
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 环境自检（打印 Python、依赖、工具定义的开销）
+        # check_env 是为"人忘了激活 .venv"写的，在这里一定会报红字——所以只让它的
+        # 输出可见，不拿它判失败。它那几行"人格 prompt / 工具 schema 多少字符"很有用，
+        # 是这本册子里成本账的来源。
+        run: python -m scripts.check_env || true
+
+      - name: 跑离线测试（528 条）
+        run: python -m unittest discover -s tests -t .
+
+      - name: 命令行入口没坏（这两条不调模型、不需要 API key）
+        run: |
+          python -m divana.evals --history
+          python -m divana.evals --calibrate

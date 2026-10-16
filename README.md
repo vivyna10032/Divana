@@ -1,8 +1,10 @@
 # Divana
 
+[![离线测试](https://github.com/vivyna10032/Divana/actions/workflows/tests.yml/badge.svg)](https://github.com/vivyna10032/Divana/actions/workflows/tests.yml)
+
 陪伴式 AI 学习助手：答疑、知识总结、学习路径规划、技术热点追踪。
 
-## 当前版本：v0.13.5
+## 当前版本：v0.13.6
 
 命令行学习伴侣，已接入 DeepSeek，会记人、会查资料、会把概念落成笔记。
 
@@ -23,6 +25,9 @@ py -3.14 -m venv .venv
 
 # 3. 装依赖
 pip install -r requirements.txt
+
+# 版本已经钉死了（openai-agents==0.22.2 这种）。想一字节不差地复现我这台机器的
+# 42 个包，用 pip install -r requirements.lock（那个文件里有 pywin32，只能在 Windows 用）
 
 # 4. 配置密钥
 Copy-Item .env.example .env
@@ -118,6 +123,26 @@ python -m unittest discover -s tests -v
 
 里面还有一组**网页层的测试**：起一个真服务器，用一个假 service 把 HTTP 和 SSE
 跑一遍（它需要 starlette，没有就自动跳过）。
+
+## 持续集成
+
+`.github/workflows/tests.yml`：push 到 main、以及每个 PR，都会在 GitHub 上自动跑
+**528 条离线测试**（Python 3.13，Linux）。
+
+**只跑不花钱的那一层。** 评测（20 条用例）故意不进 CI：它要真调模型，一轮约 0.37 元，
+而且结果本身是概率性的——放进 CI 就变成"每次 push 都可能红，还得盯着分辨是真挂还是抖动"。
+评测是**发布前手跑**的清单，不是 push 的门槛。**能自动的自动，要花钱的留给人决定。**
+
+两条口径写在 workflow 的注释里，这里也说一遍：
+
+- 跑的是 **Python 3.13**，也就是 README 里写的最低版本——顺手守住"最低版本也能跑"这条线
+  （开发机上是 3.14.2）。
+- 只跑 Linux。项目主要运行在 Windows，但离线测试里没有平台假设（文件一律走临时目录、
+  编码显式写 UTF-8），所以 Linux 全绿就说明代码是干净的。要覆盖 Windows，
+  把 `windows-latest` 加进那个 matrix 就行。
+
+CI 里的最后一步会跑 `divana.evals --history` 和 `--calibrate`——它们不需要 API key、
+不调模型，只验证这两个命令行入口没被改坏。
 
 ## 她的记忆
 
@@ -1199,6 +1224,8 @@ note-search               19035    3     19000   23000   6345
       新增 `--calibrate`，对着实测一次性重算 20 条（18 条本来就偏紧）；校准只建议，不改文件
 - [x] **v0.13.5 收尾** 连续两次 20/20（￥0.36/轮、单条 14.9k token）；`+脏` 不再由
       评测自己的产物触发（`baseline.json` / `history.jsonl` 从脏判断里排除）
+- [x] **v0.13.6 钉住环境** 直接依赖全部钉死版本（+ 单机快照 `requirements.lock`）；
+      离线测试进 CI（push / PR 自动跑，评测那 20 条**故意不进**——它花钱且有抖动）
 
 **路线图上的事做完了。** 再往后可以做的（都没排期）：
 
