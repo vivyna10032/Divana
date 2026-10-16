@@ -13,6 +13,7 @@ agents 的导入放在函数里，纯函数（拼简报、存文件、读列表�
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -21,6 +22,7 @@ from .config import Settings
 from .prompt import format_today, load_digester
 from .state import DIGEST_ERROR, LAST_DIGEST, update_state
 from .storage import atomic_write
+from .usage import record, take_retries
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIGEST_DIR = PROJECT_ROOT / "vault" / "digest"
@@ -195,7 +197,19 @@ async def run_digest(
         model=settings.model,
         tools=build_search_tools(),
     )
-    result = await Runner.run(agent, brief, context=service.context)
+    started = time.monotonic()
+    retries = take_retries()
+    result = await Runner.run(
+        agent, brief, context=service.context, max_turns=settings.max_turns
+    )
+    # 早报是后台自己跑的，你不看着它——**更要记账**：不然那笔钱花得毫无痕迹。
+    record(
+        result,
+        kind="digest",
+        model=settings.model,
+        seconds=time.monotonic() - started,
+        retries=retries,
+    )
     markdown = (result.final_output or "").strip()
     if not markdown:
         raise DigestError("早报撰写者没有返回内容")

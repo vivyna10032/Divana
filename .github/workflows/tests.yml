@@ -1,6 +1,6 @@
 name: 离线测试
 
-# 只跑**不花钱、不联网**的那一层：528 条离线单元测试。
+# 只跑**不花钱、不联网**的那一层：全部离线单元测试。
 #
 # 故意不跑评测（evals/cases.yaml，20 条用例）：它要真调模型，一轮约 0.37 元，
 # 而且结果本身是概率性的——放进 CI 就变成"每次 push 都可能红，还得盯着看到底是
@@ -53,10 +53,11 @@ jobs:
         # 是这本册子里成本账的来源。
         run: python -m scripts.check_env || true
 
-      - name: 跑离线测试（528 条）
+      - name: 跑离线测试
         run: python -m unittest discover -s tests -t .
 
       - name: 命令行入口没坏（这两条不调模型、不需要 API key）
         run: |
           python -m divana.evals --history
           python -m divana.evals --calibrate
+          python -m divana.usage

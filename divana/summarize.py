@@ -10,12 +10,15 @@
 
 from __future__ import annotations
 
+import time
+
 from agents import Agent, Runner, Session
 
 from .config import Settings
 from .contracts import SummarizeError
 from .prompt import load_summarizer
 from .transcript import MIN_TRANSCRIPT_CHARS, render_transcript
+from .usage import record, take_retries
 
 # 总结时要读多少条会话记录。
 #
@@ -44,7 +47,19 @@ async def summarize_session(settings: Settings, session: Session) -> str:
     if len(transcript) < MIN_TRANSCRIPT_CHARS:
         raise SummarizeError("这次对话内容太少，没什么好总结的")
 
-    result = await Runner.run(build_summarizer(settings), transcript)
+    started = time.monotonic()
+    retries = take_retries()
+    result = await Runner.run(
+        build_summarizer(settings), transcript, max_turns=settings.max_turns
+    )
+    # 总结也是一次真实的模型开销，照样进台账——不然"这次总结花了多少"永远没答案。
+    record(
+        result,
+        kind="summary",
+        model=settings.model,
+        seconds=time.monotonic() - started,
+        retries=retries,
+    )
     output = (result.final_output or "").strip()
     if not output:
         raise SummarizeError("总结者没有返回内容")

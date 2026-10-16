@@ -57,7 +57,7 @@ from divana.evals.report import (
     token_totals,
     write_trajectory,
 )
-from divana.evals.pricing import CURRENCY, Price, format_money, format_rate
+from divana.pricing import CURRENCY, Price, format_money, format_rate
 from divana.notes import render_note
 
 

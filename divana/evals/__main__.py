@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 from ..config import Settings, setup_agents_sdk
 from .calibrate import render_caps, suggest_caps
 from .cases import load_cases
-from .pricing import Price, format_money
+from ..pricing import Price, format_money
 from .report import (
     append_history,
     compare,

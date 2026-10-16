@@ -11,9 +11,11 @@ cli.py 负责读键盘和打印；这一层只管干活、返回结构化结果�
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-from agents import Runner, Session, ToolCallItem
+from agents import MaxTurnsExceeded, Runner, Session, ToolCallItem
+from openai import APIConnectionError, APITimeoutError
 from openai.types.responses import ResponseTextDeltaEvent
 
 from .agent import build_agent
@@ -44,6 +46,7 @@ from .session import (
 from .summarize import summarize_session
 from .trash import trash_text
 from .transcript import history_messages, split_title
+from .usage import UsageStore, record, take_retries
 
 
 def tool_call_from(item: ToolCallItem) -> ToolCall:
@@ -74,6 +77,8 @@ class DivanaService:
         self.context: DivanaContext = build_context(settings)
         self.agent = build_agent(settings, self.context)
         self.session: Session = open_session(session_id)
+        # 日常用量台账。留一个实例（而不是每次现建）是为了测试能塞一个临时路径进来。
+        self.usage = UsageStore()
 
     # ---------------------------------------------------------- 对话
 
@@ -83,25 +88,92 @@ class DivanaService:
         传了 `on_event` 就走流式：边生成边回调（文字片段 + 工具调用），
         调用方可以立刻显示出来。不传就等整段生成完再返回。
         **两条路的最终结果一样**，区别只在"什么时候看到字"。
-        """
-        if on_event is None:
-            result = await Runner.run(
-                self.agent, text, session=self.session, context=self.context
-            )
-            return to_reply(result)
 
-        streamed = Runner.run_streamed(
-            self.agent, text, session=self.session, context=self.context
+        两条路都把用量记进台账（见 usage.py）；两种**可预期的失败**会变成一句人话，
+        而不是让异常一路飙到界面上去：
+
+        - 她绕圈绕到上限（`max_turns`）——是"这个问题太难/太糊"的信号；
+        - 接口连不上或超时（重试也救不回来）——是"网络/代理"的信号。
+
+        其余异常照旧往外抛：401、参数写错这类是**配置或代码的问题**，必须响，
+        不能让一句"抱歉我出错了"把它盖住。
+        """
+        started = time.monotonic()
+        retries = take_retries()   # 先清零：这样拿到的就是"这一轮"重试了几次
+
+        try:
+            if on_event is None:
+                result = await Runner.run(
+                    self.agent,
+                    text,
+                    session=self.session,
+                    context=self.context,
+                    max_turns=self.settings.max_turns,
+                )
+            else:
+                result = Runner.run_streamed(
+                    self.agent,
+                    text,
+                    session=self.session,
+                    context=self.context,
+                    max_turns=self.settings.max_turns,
+                )
+                async for event in result.stream_events():
+                    item = getattr(event, "item", None)
+                    if isinstance(item, ToolCallItem):
+                        on_event(ToolCalled(tool_call_from(item)))
+                        continue
+                    data = getattr(event, "data", None)
+                    if isinstance(data, ResponseTextDeltaEvent) and data.delta:
+                        on_event(TextDelta(data.delta))
+        except MaxTurnsExceeded:
+            return self._failed_reply(
+                "turns",
+                started,
+                retries,
+                f"这一轮她绕了 {self.settings.max_turns} 步还没收住，我先打断了。"
+                "把问题拆小一点再问一次，或者直接看她卡在哪一步（轨迹在网页上）。",
+            )
+        except (APITimeoutError, APIConnectionError) as exc:
+            tried = self.settings.max_retries + 1
+            return self._failed_reply(
+                "network",
+                started,
+                retries,
+                f"模型接口这一轮没通（一共试了 {tried} 次）：{exc}。"
+                "先看一眼网络或代理，再问一次就行——这一轮没有算进对话。",
+            )
+
+        reply = to_reply(result)
+        record(
+            result,
+            kind="chat",
+            model=self.settings.model,
+            seconds=time.monotonic() - started,
+            retries=retries,
+            tools=tuple(call.name for call in reply.tool_calls),
+            store=self.usage,
         )
-        async for event in streamed.stream_events():
-            item = getattr(event, "item", None)
-            if isinstance(item, ToolCallItem):
-                on_event(ToolCalled(tool_call_from(item)))
-                continue
-            data = getattr(event, "data", None)
-            if isinstance(data, ResponseTextDeltaEvent) and data.delta:
-                on_event(TextDelta(data.delta))
-        return to_reply(streamed)
+        return reply
+
+    def _failed_reply(
+        self, error: str, started: float, retries: int, message: str
+    ) -> Reply:
+        """把"她没答上来"变成一句人话，同时照记账。
+
+        记账这一步不能省：失败的那一轮没有 token（它根本没跑完），但它**发生过**——
+        台账里留着它，你才答得出"这周她坏了几次、坏在哪一类"。
+        """
+        record(
+            None,
+            kind="chat",
+            model=self.settings.model,
+            seconds=time.monotonic() - started,
+            retries=retries,
+            error=error,
+            store=self.usage,
+        )
+        return Reply(text=message)
 
     # ---------------------------------------------------------- 总结
 

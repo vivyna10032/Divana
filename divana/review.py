@@ -12,6 +12,7 @@ agents 的导入放在函数里，这样上面那些纯函数（拼素材、排�
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -21,6 +22,7 @@ from .markdown_store import demote_level2_headings
 from .prompt import format_today, load_reviewer
 from .session import RecentMessage, recent_messages
 from .state import LAST_ERROR, LAST_REVIEW, update_state
+from .usage import record, take_retries
 
 # 一份素材最多多少字。一周的对话很容易上万字，得压。
 MAX_MATERIAL_CHARS = 12000
@@ -148,7 +150,16 @@ async def run_review(
         instructions=load_reviewer(),
         model=settings.model,
     )
-    result = await Runner.run(agent, material)
+    started = time.monotonic()
+    retries = take_retries()
+    result = await Runner.run(agent, material, max_turns=settings.max_turns)
+    record(
+        result,
+        kind="review",
+        model=settings.model,
+        seconds=time.monotonic() - started,
+        retries=retries,
+    )
     markdown = (result.final_output or "").strip()
     if not markdown:
         raise ReviewError("复盘者没有返回内容")

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .cases import Case, cases_fingerprint, fingerprints
 from .checks import Finding, Outcome
-from .pricing import Price, format_money, format_rate
+from ..pricing import Price, format_money, format_rate
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 BASELINE_PATH = PROJECT_ROOT / "evals" / "baseline.json"
