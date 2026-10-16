@@ -127,7 +127,7 @@ python -m unittest discover -s tests -v
 ## 持续集成
 
 `.github/workflows/tests.yml`：push 到 main、以及每个 PR，都会在 GitHub 上自动跑
-**563 条离线测试**（Python 3.13，Linux）。
+**566 条离线测试**（Python 3.13，Linux）。
 
 **只跑不花钱的那一层。** 评测（20 条用例）故意不进 CI：它要真调模型，一轮约 0.37 元，
 而且结果本身是概率性的——放进 CI 就变成"每次 push 都可能红，还得盯着分辨是真挂还是抖动"。

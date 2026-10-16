@@ -23,8 +23,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import httpx
-
 try:
     import agents  # noqa: F401
 
@@ -73,6 +71,18 @@ def fake_result(text: str = "答一句") -> SimpleNamespace:
             )
         ),
     )
+
+
+def fake_request() -> SimpleNamespace:
+    """装成一次 HTTP 请求。
+
+    **故意不 import httpx**：本项目不直接依赖它（openai 3.13 自己用的是 `httpx2`），
+    而 openai 的异常只是把 request 存起来、不在构造时读它的字段。第一版这里写了
+    `import httpx`——本地能过，是因为这台机器的 Anaconda 里恰好有 httpx；
+    换到 CI 的干净环境立刻 import 失败（`httpx2` 才是装上的那个）。
+    教训：测试里 import 的东西，必须是**这个项目真的声明了依赖**的东西。
+    """
+    return SimpleNamespace(method="POST", url="https://example.invalid/chat/completions")
 
 
 class FakeStream:
@@ -210,10 +220,8 @@ class AskTest(ServiceTestBase):
         self.assertEqual(entry.calls, 0)     # 没跑完，没有 token
 
     def test_a_dead_connection_becomes_a_human_message(self) -> None:
-        request = httpx.Request("POST", "https://example.invalid/chat/completions")
-
         async def fake_run(*args, **kwargs):
-            raise APITimeoutError(request=request)
+            raise APITimeoutError(request=fake_request())
 
         with patch("divana.service.Runner.run", new=fake_run):
             reply = self._ask("在吗")
@@ -222,10 +230,8 @@ class AskTest(ServiceTestBase):
         self.assertEqual(self.entries()[0].error, "network")
 
     def test_connection_errors_are_covered_as_well(self) -> None:
-        request = httpx.Request("POST", "https://example.invalid/chat/completions")
-
         async def fake_run(*args, **kwargs):
-            raise APIConnectionError(request=request)
+            raise APIConnectionError(request=fake_request())
 
         with patch("divana.service.Runner.run", new=fake_run):
             reply = self._ask("在吗")
