@@ -36,15 +36,18 @@ from reportlab.platypus.tableofcontents import TableOfContents
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from content import BLOCKS as CORE_BLOCKS  # noqa: E402
-from content_v010 import CHAPTERS as EXTRA_CHAPTERS  # noqa: E402
+from content_evals import CHAPTERS as EXTRA_CHAPTERS  # noqa: E402
 
 
 def _with_new_chapters(blocks: list, extra: list) -> list:
-    """把 v0.8~v0.10 那两章插在「面试速查」之前。
+    """把评测那三章（第 6 ~ 8 章）插在「面试速查」之前。
 
     为什么不直接写进 content.py：那两章要插在**中间**（面试速查和"接下来"要留在最后），
     而 content.py 是 600 多行中文数据，插错位置很难看出来。单独一步、单独一个文件，
     改完还能对着目录核一遍。
+
+    这几章是 v0.10 起草的，之后每轮评测的教训都往这里加（v0.13 补了判据指纹、
+    成本台账、护栏过期），所以文件名不叫 content_v010 了——它现在装的是"评测这一块"。
     """
     for index, (kind, payload) in enumerate(blocks):
         if kind == "h1" and payload.startswith("第 9 章"):
