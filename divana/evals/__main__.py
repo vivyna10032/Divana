@@ -45,6 +45,11 @@ from .report import (
 )
 
 
+#: 评测**自己写出来**的文件。判断"工作区脏不脏"时要把它们排除掉——
+#: 见 `_git_commit` 里的说明。
+_OWN_OUTPUTS = ("evals/baseline.json", "evals/history.jsonl")
+
+
 def _git_commit() -> str:
     """当前提交号。分数变了要能对上"是哪一版代码"。
 
@@ -52,8 +57,13 @@ def _git_commit() -> str:
     这时存 baseline，它记的是 HEAD 那个提交——而那个提交里的 prompt 并不是你实际
     跑的那一份。回头想复现"这一版为什么是 14/15"就找不到了。
 
-    只看**已跟踪文件**的改动（`--untracked-files=no`）：baseline.json 自己就是
-    个未跟踪文件，否则每次都会显示脏。
+    **但它自己的产物要排除掉。** 这条是 2026-10-15 补的：那天连着跑两次都全绿，
+    第二次的提交号却记成了 `b399d9e+脏`——脏的只是评测刚写完的 baseline.json 和
+    history.jsonl。而台账是拿去说事的东西，一个看不出原因的 `+脏` 会让读的人以为
+    "这版 prompt 是改过还没提交的"，那正好把这一列的意义抵消掉。
+
+    所以要排除两批：**未跟踪文件**（`--untracked-files=no`，否则新 store 出来的
+    baseline 自己就让工作区变脏）和**上面那两个自己写的文件**。
     """
 
     def git(*args: str):
@@ -66,7 +76,14 @@ def _git_commit() -> str:
         if head.returncode != 0:
             return ""
         sha = head.stdout.strip()
-        dirty = git("status", "--porcelain", "--untracked-files=no")
+        dirty = git(
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            "--",
+            ".",
+            *(f":(exclude){path}" for path in _OWN_OUTPUTS),
+        )
     except (OSError, subprocess.SubprocessError):
         return ""
     if dirty.returncode == 0 and dirty.stdout.strip():
